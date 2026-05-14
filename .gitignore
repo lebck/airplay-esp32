@@ -11,6 +11,9 @@ sdkconfig.*
 
 #
 user_platformio.ini
+.idea
+*.stl
+
 
 # macOS metadata
 .DS_Store

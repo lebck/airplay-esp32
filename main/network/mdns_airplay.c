@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_netif.h"
 #include "mdns.h"
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #include "mdns_airplay.h"
 #include "rtsp_handlers.h"
 #include "wifi.h"
+#include "ethernet.h"
 #include "settings.h"
 
 static const char *TAG = "mdns_airplay";
@@ -24,10 +26,6 @@ static const char *TAG = "mdns_airplay";
 
 // Flags: 0x4 = audio receiver
 #define AIRPLAY_FLAGS "0x4"
-
-// Model identifier - AudioAccessory for speaker appearance
-// AppleTV3,2 = Apple TV, AudioAccessory5,1 = HomePod mini (speaker)
-#define AIRPLAY_MODEL "AudioAccessory5,1"
 
 void mdns_airplay_init(void) {
   char mac_str[18];
@@ -137,5 +135,24 @@ void mdns_airplay_init(void) {
   if (err_raop != ESP_OK) {
     ESP_LOGE(TAG, "Failed to add _raop._tcp service: %s",
              esp_err_to_name(err_raop));
+  }
+}
+
+void mdns_airplay_reannounce(void) {
+  // Send gratuitous mDNS announcements on all active interfaces.
+  // This forces service records (_raop._tcp, _airplay._tcp) back into
+  // clients' mDNS caches, preventing the device from disappearing
+  // from AirPlay lists after extended uptime.
+
+  esp_netif_t *netif = NULL;
+  while ((netif = esp_netif_next_unsafe(netif)) != NULL) {
+    if (esp_netif_is_netif_up(netif)) {
+      esp_err_t err =
+          mdns_netif_action(netif, MDNS_EVENT_ANNOUNCE_IP4);
+      if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "mDNS re-announce failed on %s: %s",
+                 esp_netif_get_desc(netif), esp_err_to_name(err));
+      }
+    }
   }
 }

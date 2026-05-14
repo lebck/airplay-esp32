@@ -4,6 +4,7 @@
 
 #include "audio_timing.h"
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "ntp_clock.h"
@@ -495,6 +496,12 @@ size_t audio_timing_read(audio_timing_t *timing, audio_buffer_t *buffer,
                      "flushing %d stale frames",
                      -early_us / 1000LL, timing->consecutive_late_frames,
                      audio_buffer_get_frame_count(buffer));
+            ESP_LOGW(TAG,
+                     "Bulk flush diag: heap internal=%u (min=%u) spiram=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(
+                         MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             if (from_pending) {
               timing->pending_valid = false;
               timing->pending_frame_len = 0;

@@ -26,6 +26,8 @@
 
 #include "iot_board.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -85,12 +87,45 @@ static void stop_airplay_services(void) {
 }
 #endif
 
+// Log heap stats and WiFi RSSI for diagnosing intermittent audio stalls.
+// Called every ~30 seconds from the network monitor loop.
+static void log_diagnostics(void) {
+  size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  size_t free_spiram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  size_t min_internal =
+      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+
+  int rssi = 0;
+  bool have_rssi = false;
+  if (wifi_is_connected()) {
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+      rssi = ap.rssi;
+      have_rssi = true;
+    }
+  }
+
+  if (have_rssi) {
+    ESP_LOGI(TAG,
+             "diag: heap internal=%u (min=%u, largest=%u) spiram=%u rssi=%d",
+             (unsigned)free_internal, (unsigned)min_internal,
+             (unsigned)largest_block, (unsigned)free_spiram, rssi);
+  } else {
+    ESP_LOGI(TAG, "diag: heap internal=%u (min=%u, largest=%u) spiram=%u",
+             (unsigned)free_internal, (unsigned)min_internal,
+             (unsigned)largest_block, (unsigned)free_spiram);
+  }
+}
+
 static void network_monitor_task(void *pvParameters) {
   (void)pvParameters;
   bool had_network = ethernet_is_connected() || wifi_is_connected();
   bool dns_running = !had_network;
   bool wifi_started = wifi_is_connected() || !ethernet_is_connected();
   bool had_eth = ethernet_is_connected();
+  int diag_counter = 0;
+  int mdns_reannounce_counter = 0;
 
   // Start captive portal DNS if no network yet
   if (dns_running) {
@@ -99,6 +134,19 @@ static void network_monitor_task(void *pvParameters) {
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Periodic diagnostics every ~30 seconds (15 × 2s)
+    if (++diag_counter >= 15) {
+      diag_counter = 0;
+      log_diagnostics();
+    }
+
+    // Re-announce mDNS services every ~5 minutes (150 × 2s)
+    // to keep the device visible in AirPlay lists during extended uptime
+    if (s_airplay_infrastructure_ready && ++mdns_reannounce_counter >= 150) {
+      mdns_reannounce_counter = 0;
+      mdns_airplay_reannounce();
+    }
 
     bool eth_up = ethernet_is_connected();
     bool wifi_up = wifi_is_connected();

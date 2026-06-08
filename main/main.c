@@ -17,11 +17,11 @@
 #include "log_stream.h"
 #include "wifi.h"
 #include "spiffs_storage.h"
+#include "rtsp_events.h"
 
 #ifdef CONFIG_BT_A2DP_ENABLE
 #include "a2dp_sink.h"
 #include "bt_coex.h"
-#include "rtsp_events.h"
 #endif
 
 #ifdef CONFIG_DAC_TAS57XX
@@ -47,6 +47,25 @@ static const char *TAG = "main";
 
 static bool s_airplay_started = false;
 static bool s_airplay_infrastructure_ready = false;
+
+static void on_airplay_power_event(rtsp_event_t event,
+                                   const rtsp_event_data_t *data,
+                                   void *user_data) {
+  (void)data;
+  (void)user_data;
+
+  switch (event) {
+  case RTSP_EVENT_PLAYING:
+    wifi_set_idle_power_save(false);
+    break;
+  case RTSP_EVENT_PAUSED:
+  case RTSP_EVENT_DISCONNECTED:
+    wifi_set_idle_power_save(true);
+    break;
+  default:
+    break;
+  }
+}
 
 static void start_airplay_services(void) {
   if (s_airplay_started) {
@@ -378,6 +397,7 @@ void app_main(void) {
 
   // Start services that work on any interface
   web_server_start(80);
+  rtsp_events_register(on_airplay_power_event, NULL);
   task_create_spiram(network_monitor_task, "net_mon", 4096, NULL, 5, NULL,
                      NULL);
 

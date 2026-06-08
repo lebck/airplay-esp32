@@ -29,6 +29,13 @@ void wifi_get_mac_str(char *mac_str, size_t len);
 bool wifi_is_connected(void);
 
 /**
+ * Enable or disable WiFi modem-sleep for idle power saving.
+ * Idle mode keeps STA connected using WIFI_PS_MIN_MODEM. Active playback uses
+ * WIFI_PS_NONE to avoid latency-sensitive audio stalls.
+ */
+void wifi_set_idle_power_save(bool enabled);
+
+/**
  * Get current IP address as string
  * @param ip_str Output buffer
  * @param len Buffer size

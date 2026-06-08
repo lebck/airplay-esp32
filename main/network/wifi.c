@@ -31,6 +31,7 @@ static esp_netif_t *s_sta_netif = NULL;
 static esp_netif_t *s_ap_netif = NULL;
 static bool s_wifi_initialized = false;
 static bool s_sta_connected = false;
+static bool s_idle_power_save = true;
 static bool s_bssid_set = false;
 static esp_timer_handle_t s_retry_timer = NULL;
 
@@ -272,7 +273,8 @@ static void wifi_init_base(void) {
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-  ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+  ESP_ERROR_CHECK(
+      esp_wifi_set_ps(s_idle_power_save ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE));
 
   // Create one-shot retry timer (no background task needed)
   const esp_timer_create_args_t timer_args = {
@@ -378,6 +380,27 @@ bool wifi_is_connected(void) {
   return s_sta_connected;
 }
 
+void wifi_set_idle_power_save(bool enabled) {
+  if (s_idle_power_save == enabled && s_wifi_initialized) {
+    return;
+  }
+
+  s_idle_power_save = enabled;
+
+  if (!s_wifi_initialized) {
+    return;
+  }
+
+  wifi_ps_type_t ps_type = enabled ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE;
+  esp_err_t err = esp_wifi_set_ps(ps_type);
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "WiFi power save: %s",
+             enabled ? "idle modem-sleep" : "disabled for playback");
+  } else {
+    ESP_LOGW(TAG, "Failed to set WiFi power save: %s", esp_err_to_name(err));
+  }
+}
+
 esp_err_t wifi_get_ip_str(char *ip_str, size_t len) {
   if (!s_sta_netif || !ip_str || len == 0) {
     return ESP_ERR_INVALID_ARG;
@@ -462,6 +485,7 @@ void wifi_stop(void) {
     esp_wifi_deinit();
     s_wifi_initialized = false;
     s_sta_connected = false;
+    s_idle_power_save = true;
     s_retry_num = 0;
     if (s_wifi_event_group) {
       xEventGroupClearBits(s_wifi_event_group,

@@ -27,6 +27,10 @@ menu "Board Configuration"
             bool "Seeed XIAO ESP32-C5"
             depends on IDF_TARGET_ESP32C5
 
+        config BOARD_SEEED_XIAO_ESP32S3
+            bool "Seeed Studio XIAO ESP32-S3"
+            depends on IDF_TARGET_ESP32S3
+
         config BOARD_ESP32_GENERIC
             bool "ESP32 Board with >4M PSRAM"
             depends on IDF_TARGET_ESP32
@@ -68,6 +72,8 @@ menu "Board Configuration"
         default "esp32s2-generic" if BOARD_ESP32S2_GENERIC
         default "esp32s3-generic" if BOARD_ESP32S3_GENERIC
         default "esp32c5-xiao" if BOARD_ESP32C5_XIAO
+
+        default "seeed-xiao-esp32s3" if BOARD_SEEED_XIAO_ESP32S3
         default "esp32-generic" if BOARD_ESP32_GENERIC
         default "esparagus-audio-brick" if BOARD_ESPARAGUS_AUDIO_BRICK
         default "esparagus-audio-brick" if BOARD_ESPARAGUS_AUDIO_BRICK_S3

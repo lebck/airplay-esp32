@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/platform-ESP32-green?style=flat-square)](https://www.espressif.com/en/products/socs/esp32)
 [![Platform](https://img.shields.io/badge/platform-SqueezeAMP-green?style=flat-square)](https://github.com/philippe44/SqueezeAMP)
 
-**Stream music from your Apple devices — or phone via Bluetooth — to any speaker for ~10$**
+**AirPlay receiver built with a Seeed Studio XIAO ESP32S3 and a PCM5102A I2S DAC.**
 
 </div>
 
@@ -28,83 +28,66 @@ ESP32 boards (SqueezeAMP, Esparagus Audio Brick) also support **Bluetooth A2DP**
 
 ---
 
-## Shopping List
+## Current Setup — Seeed Studio XIAO ESP32S3
 
-You only need 2 boards and a few wires. Everything is available on AliExpress / Amazon for under 10$.
+This setup uses the standard **Seeed Studio XIAO ESP32S3** with **8 MB flash and 8 MB octal PSRAM**, an external **PCM5102A DAC**, and USB-C power. Audio is received over WiFi via AirPlay and sent to an amplifier or powered speakers through the DAC's analog output. Bluetooth A2DP is only available on the classic ESP32 targets, not this S3 setup.
 
-| Component                | What to search for                                                      | Price |
-| ------------------------ | ----------------------------------------------------------------------- | ----- |
-| **ESP32-S3 dev board**   | "ESP32-S3 N16R8"                                                        | ~5$   |
-| **PCM5102A DAC board**   | "PCM5102A I2S DAC" (the small purple board with 3.5mm jack)             | ~3$   |
-| **Female 2.54mm header** | "Female pin header 2.54mm single row" (1x6 or longer, then cut to size) | ~0.5$ |
+| Component | Purpose |
+| --- | --- |
+| Seeed Studio XIAO ESP32S3 + external WiFi antenna | AirPlay receiver |
+| PCM5102A I2S DAC module with 5V VIN and analog output | Digital-to-analog conversion |
+| Short jumper wires / soldered wires and suitable headers | Power and I2S connections |
+| USB-C data cable and USB power source | Flashing and power |
+| Amplifier or powered speakers + audio cable | Playback from the DAC's line output |
 
-> **Alternative:** If you have a **[SqueezeAMP](https://github.com/philippe44/SqueezeAMP)** or **[Esparagus Audio Brick](https://esparagus.com/)** board, you don't need a separate DAC — just flash the appropriate firmware target. See the [SqueezeAMP](#squeezeamp) and [Esparagus Audio Brick](#esparagus-audio-brick) sections below.
+See the [official Seeed hardware overview and pinout](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/) for board orientation and header labels.
 
-Here is what the PCM5102A board looks like:
-Verify the solder bridges are in the same position as the picture.
+### Wiring
 
-<div align="center">
-<img src="docs/PCM5102A.png" alt="PCM5102A DAC board" width="500">
-</div>
+Disconnect USB power before wiring. Connect the DAC to the XIAO as follows; **D labels and GPIO numbers are different**:
 
----
+| XIAO header label | ESP32-S3 GPIO | PCM5102A pin | Function |
+| --- | --- | --- | --- |
+| **5V** | — | **VIN** | DAC module power (USB-powered setup) |
+| **GND** | — | **GND** | Common ground |
+| **D8** | **GPIO7** | **BCK** / BCLK | I2S bit clock |
+| **D9** | **GPIO8** | **DIN** | I2S audio data from the XIAO |
+| **D10** | **GPIO9** | **LCK** / LRCK / WS | I2S word select |
 
-## Assembly (No Soldering Skills Needed)
-
-The PCM5102A plugs directly onto the ESP32 pins using a female header — no breadboard, no jumper wires.
-
-### Step 1 — Prepare the ESP32
-
-The pins on **one side** of the ESP32 need to be removed (or not soldered on) so the assembly fits inside the 3D-printed case. Only the side with GPIO11–GPIO14 needs pins.
-
-If your board came with pins on both sides already soldered, you can carefully desolder or clip the pins on the opposite side.
-
-### Step 2 — Plug the DAC onto the ESP32
-
-Take a **female 2.54mm pin header** (6 pins) and plug it onto the ESP32 pins on the side with GPIO11–14. Then insert the PCM5102A board into the female header from the other side.
-
-The connections through the header are:
-
-```
-ESP32-S3 pin     →  PCM5102A pin    What it does
-─────────────────────────────────────────────────
-5V               →  VIN             Power for the DAC
-GPIO11           →  BCK             Bit clock (audio timing)
-GPIO12           →  DIN             Audio data
-GPIO13           →  LCK             Left/right channel select
-GPIO14           →  GND             Software ground (pulled low by code)
-Or GND           →  GND             Ground (GPIO14 software ground is sufficient)
-```
-
-### _⚠️ **Important:** On the ESP32S3 board, bridge the VIN/VOUT solder pads if they are not already connected. This lets the board use 5V power directly._
-
-### Step 3 — Check the result
-
-Your assembly should look like this:
+Use the actual **GND** pin: software ground and GPIO power are disabled in this target. MCLK output is also disabled (`CONFIG_I2S_SCK_IO=-1`). For the PCM5102A module, configure its solder bridges for I2S operation without an external master clock; check the reference photo against your module's pin labels and bridge layout.
 
 <div align="center">
-
-|                              Front                              |                             Back                              |                              Side                               |
-| :-------------------------------------------------------------: | :-----------------------------------------------------------: | :-------------------------------------------------------------: |
-| <img src="docs/ESP_PCM_front.png" alt="Front view" width="200"> | <img src="docs/ESP_PCM_back.png" alt="Back view" width="200"> | <img src="docs/ESP32_PCM_side.png" alt="Side view" width="150"> |
-
+<img src="docs/PCM5102A.png" alt="PCM5102A DAC module solder-bridge reference" width="500">
 </div>
 
-The PCM5102A sits on top of the ESP32 and the 3.5mm audio jack sticks out the end. Plug a USB-C cable into the ESP32 for power.
+The pin assignments match [`sdkconfig.defaults.seeed-xiao-esp32s3`](sdkconfig.defaults.seeed-xiao-esp32s3):
 
-### Step 4 — (Optional) Print the case
+```ini
+CONFIG_I2S_SCK_IO=-1
+CONFIG_I2S_BCK_IO=7
+CONFIG_I2S_WS_IO=9
+CONFIG_I2S_DO_IO=8
+CONFIG_I2S_GND_IO=-1
+CONFIG_I2S_VCC_IO=-1
+```
 
-A 3D-printable case is provided in [`docs/boite esp32.stl`](docs/boite%20esp32.stl). Print it with standard PLA settings. The case is designed for the assembly with pins on one side only.
+Attach the external WiFi antenna, connect the DAC's analog output to your amplifier or powered speakers, then power the XIAO through USB-C. The DAC provides a line-level signal; passive speakers need an amplifier.
+
+The target configures the onboard user LED on GPIO21. An external RGB LED, display, buttons, DAC I2C control, and battery monitoring are not enabled by this setup.
+
+### Earlier Generic ESP32-S3 Assembly
+
+The photos in `docs/ESP_PCM_front.png`, `docs/ESP_PCM_back.png`, and `docs/ESP32_PCM_side.png`, along with [`docs/boite esp32.stl`](docs/boite%20esp32.stl), document the earlier generic ESP32-S3 assembly. Its direct six-pin DAC mounting, GPIO11–14 wiring, and VIN/VOUT bridge instructions do **not** apply to the XIAO. The case was designed for that earlier assembly.
 
 ---
 
 ## Flash the Firmware
 
-Three options: **Web flasher** (no install needed), **PlatformIO**, or **ESP-IDF**.
+For the XIAO, build this checkout using the **`seeed-xiao-esp32s3`** target below. The plain `esp32s3` target uses a different pin mapping and 16 MB flash settings. `platformio.ini` still defaults to `esp32s3`, so always specify `-e seeed-xiao-esp32s3`.
 
-### Option A — Web Flasher (Recommended for beginners)
+### Option A — Web Flasher (Other Board Targets)
 
-Flash a pre-built firmware directly from your browser — no toolchain, no code, no command line.
+The upstream pre-built images listed here are for other board targets. For this XIAO wiring, use Option B or C to build the dedicated target.
 
 1. Download the latest firmware from the [Releases page](https://github.com/rbouteiller/airplay-esp32/releases/latest):
    - **`airplay2-receiver-esp32s3.bin`** — for generic ESP32-S3 + PCM5102A
@@ -129,15 +112,20 @@ Flash a pre-built firmware directly from your browser — no toolchain, no code,
 pip install platformio
 
 # 2. Clone this project (with submodules)
-git clone --recursive https://github.com/rbouteiller/airplay-esp32
+git clone --recursive https://github.com/lebck/airplay-esp32
 cd airplay-esp32
 
-# 3. Plug in your ESP32 via USB-C and flash
-pio run -e esp32s3 -t upload
+# 3. Connect the XIAO via USB-C and flash firmware + web files
+pio run -e seeed-xiao-esp32s3 -t upload
+pio run -e seeed-xiao-esp32s3 -t uploadfs
 
 # 4. (Optional) Watch serial output for debugging
-pio run -e esp32s3 -t monitor
+pio run -e seeed-xiao-esp32s3 -t monitor
 ```
+
+If you previously built this target, check the generated `sdkconfig.seeed-xiao-esp32s3`: older builds may still have `CONFIG_I2S_WS_IO=8` and `CONFIG_I2S_DO_IO=9`. Update these to **WS=9 / DO=8** using `pio run -e seeed-xiao-esp32s3 -t menuconfig` under **Board Configuration → Pin Configuration → I2S and S/PDIF Pin Configuration**, or back up and remove that generated sdkconfig so the next build uses the current defaults. Changing a defaults file alone does not overwrite cached values.
+
+If the board does not appear for flashing, hold **BOOT** while connecting USB, then release it and retry. Press **RESET** after flashing if needed.
 
 ### Option C — ESP-IDF
 
@@ -146,19 +134,23 @@ pio run -e esp32s3 -t monitor
 #    https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/
 
 # 2. Clone and enter the project (with submodules)
-git clone --recursive https://github.com/rbouteiller/airplay-esp32
+git clone --recursive https://github.com/lebck/airplay-esp32
 cd airplay-esp32
 
 # 3. Activate ESP-IDF environment
 source /path/to/esp-idf/export.sh
 
-# 4. Build and flash incl. SPIFFS "storage" partition from data/
-idf.py set-target esp32s3
-idf.py build
-idf.py -p /dev/ttyUSB0 flash
+# 4. Use a separate build directory and sdkconfig for the XIAO
+idf.py -B build-xiao -DIDF_TARGET=esp32s3 \
+  -DSDKCONFIG=sdkconfig.xiao-idf \
+  -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.seeed-xiao-esp32s3" build
 
-# 5. (Optional) Monitor serial output
-idf.py -p /dev/ttyUSB0 monitor
+# 5. Flash firmware + SPIFFS "storage" partition from data/
+# Replace <serial-port> with your XIAO port (e.g. /dev/cu.usbmodem… on macOS)
+idf.py -B build-xiao -p "<serial-port>" flash
+
+# 6. (Optional) Monitor serial output
+idf.py -B build-xiao -p "<serial-port>" monitor
 ```
 
 ---
@@ -181,9 +173,9 @@ Say you have a custom ESP32 board called "myboard" with a SqueezeAMP-compatible 
 
 ```ini
 # I2S pin assignments
-CONFIG_I2S_BCK_PIN=5
-CONFIG_I2S_WS_PIN=18
-CONFIG_I2S_DO_PIN=19
+CONFIG_I2S_BCK_IO=5
+CONFIG_I2S_WS_IO=18
+CONFIG_I2S_DO_IO=19
 
 # Enable OLED display
 CONFIG_DISPLAY_ENABLED=y
@@ -236,9 +228,9 @@ That's it! Settings are saved and persist across reboots.
 
 Once the device is connected to your WiFi, you can update the firmware wirelessly without unplugging anything:
 
-1. Build the new firmware (`idf.py build` or `pio run`)
+1. Build the XIAO firmware with `pio run -e seeed-xiao-esp32s3` (or `idf.py -B build-xiao build` after Option C)
 2. Open the device's web interface (find its IP in your router's connected devices list)
-3. Use the firmware upload page to flash the new version
+3. Use the firmware upload page to flash `.pio/build/seeed-xiao-esp32s3/firmware.bin` (or `build-xiao/airplay2-receiver.bin` with ESP-IDF)
 
 ---
 
@@ -252,7 +244,7 @@ A `storage` partition is added to the partition table:
 
 | Board | Partition Size | Address |
 |---|---|---|
-| SqueezeAMP (8+MB) | 316 KB | 0x5B1000 |
+| XIAO ESP32S3 / boards using `partitions.csv` (8+ MB) | 1920 KiB | 0x620000 |
 | SqueezeAMP 4M | 192 KB | 0x3D1000 |
 
 The SPIFFS partition is mounted at `/spiffs` on boot.
@@ -277,11 +269,11 @@ data/
 
 ```bash
 # PlatformIO: flash firmware first, then the SPIFFS image from data/
-pio run -e squeezeamp-bt -t upload
-pio run -e squeezeamp-bt -t uploadfs
+pio run -e seeed-xiao-esp32s3 -t upload
+pio run -e seeed-xiao-esp32s3 -t uploadfs
 
-# ESP-IDF: flash firmware + partition table + SPIFFS image in one step
-idf.py -p /dev/ttyUSB0 flash
+# ESP-IDF: use the XIAO build directory configured in Option C
+idf.py -B build-xiao -p "<serial-port>" flash
 ```
 
 **Subsequent updates:** After the partition table is in place, you can update individual files over WiFi using the file management API (see below), or re-flash the full SPIFFS image over serial.
@@ -690,23 +682,17 @@ A 320×170 colour TFT display can be connected to show track metadata with a pro
 
 ### Signal Flow
 
-```
-┌─────────────────┐   WiFi / Eth   ┌─────────────┐
-│  iPhone / Mac   │ ────────────►  │    ESP32    │
-│    (AirPlay)    │                 │             │
-└─────────────────┘                 └──────┬──────┘
-┌─────────────────┐                        │
-│  Phone / Tablet │   Bluetooth      │ I2S
-│     (A2DP)      │ ────────────►  │
-└─────────────────┘          ┌──────▼──────┐
-                                    │  PCM5102A   │
-                                    │  / TAS58xx  │
-                                    └──────┬──────┘
-                                           │ Analog
-                                    ┌──────▼──────┐
-                                    │  Amplifier  │
-                                    │  + Speakers │
-                                    └─────────────┘
+```text
+iPhone / iPad / Mac
+        │ AirPlay over WiFi
+        ▼
+Seeed XIAO ESP32S3
+        │ I2S: D8/BCK, D9/DIN, D10/LCK
+        ▼
+    PCM5102A DAC
+        │ Analog line output
+        ▼
+Amplifier + speakers / powered speakers
 ```
 
 ### I2S Signals
@@ -717,7 +703,7 @@ A 320×170 colour TFT display can be connected to show track metadata with a pro
 | LCK    | Word select — toggles at 44.1 kHz     |
 | DIN    | Serial audio data (16-bit stereo)     |
 
-MCLK is not used for PCM5102A as generates it internally. It is, however, connected to pin 8 by default: this is useful in case you want to wire up some other kind of signal converter, like WM8805 I2S to SPDIF converter.
+The XIAO target disables MCLK output (`CONFIG_I2S_SCK_IO=-1`). GPIO8 is used for audio data (DIN). Other converters that require MCLK need a separately configured free GPIO.
 
 ### Protocol Stack
 
@@ -813,7 +799,7 @@ components/
 ├── spiffs_storage/ # SPIFFS filesystem mount
 ├── u8g2/           # u8g2 graphics library (git submodule)
 ├── u8g2-hal-esp-idf/ # ESP-IDF HAL for u8g2 (git submodule)
-└── boards/         # Board support (SqueezeAMP, Esparagus Audio Brick, ESP32-S3 generic)
+└── boards/         # Board support (Seeed XIAO ESP32S3, SqueezeAMP, Esparagus Audio Brick, generic boards)
 data/
 ├── www/            # Web interface HTML pages (served from SPIFFS)
 └── hf/             # HybridFlow binary files (loaded by TAS57xx DAC driver)

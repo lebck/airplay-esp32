@@ -35,6 +35,10 @@ additionally supports **wired Ethernet** through an optional W5500 module.
 
 **No cloud. No app. Just tap and play.**
 
+## This fork: Seeed Studio XIAO ESP32S3
+
+The [XIAO ESP32S3 + PCM5102A guide](docs/boards/seeed-xiao-esp32s3.md) covers this fork's wiring and the dedicated `seeed-xiao-esp32s3` build target. Use that target for this setup; the generic `esp32s3` firmware below uses different pins and flash settings.
+
 ## Quick start
 
 The fastest route is the browser installer — no toolchain, no command line:

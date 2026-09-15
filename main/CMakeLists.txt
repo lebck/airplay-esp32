@@ -1,5 +1,6 @@
 set( SRC_FILES
     "main.c"
+    "runtime_stats.c"
     "alac_magic_cookie.c"
     "settings.c"
     "audio/audio_receiver.c"

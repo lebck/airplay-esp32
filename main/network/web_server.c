@@ -15,6 +15,7 @@
 #include "ethernet.h"
 #include "ota.h"
 #include "log_stream.h"
+#include "runtime_stats.h"
 #include "rtsp_server.h"
 #include "esp_app_desc.h"
 #include "freertos/FreeRTOS.h"
@@ -275,6 +276,9 @@ static esp_err_t system_info_handler(httpd_req_t *req) {
   cJSON_AddNumberToObject(info, "free_heap", esp_get_free_heap_size());
   const esp_app_desc_t *app_desc = esp_app_get_description();
   cJSON_AddStringToObject(info, "firmware_version", app_desc->version);
+  cJSON_AddStringToObject(info, "firmware_build_date", app_desc->date);
+  cJSON_AddStringToObject(info, "firmware_build_time", app_desc->time);
+  runtime_stats_add_json(info);
 #ifdef CONFIG_DAC_TAS58XX
   cJSON_AddBoolToObject(info, "eq_supported", true);
 #else

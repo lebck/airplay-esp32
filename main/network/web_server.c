@@ -18,6 +18,7 @@
 #include "ethernet.h"
 #include "ota.h"
 #include "log_stream.h"
+#include "runtime_stats.h"
 #include "rtsp_server.h"
 #include "audio_output.h"
 #include "esp_app_desc.h"
@@ -990,6 +991,9 @@ static esp_err_t system_info_handler(httpd_req_t *req) {
                           reset_reason_str(esp_reset_reason()));
   cJSON_AddNumberToObject(info, "uptime_s",
                           (double)(esp_timer_get_time() / 1000000));
+  cJSON_AddStringToObject(info, "firmware_build_date", app_desc->date);
+  cJSON_AddStringToObject(info, "firmware_build_time", app_desc->time);
+  runtime_stats_add_json(info);
 #ifdef CONFIG_DAC_TAS58XX
   cJSON_AddBoolToObject(info, "eq_supported", true);
 #else

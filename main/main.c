@@ -18,6 +18,7 @@
 #include "wifi.h"
 #include "spiffs_storage.h"
 #include "rtsp_events.h"
+#include "runtime_stats.h"
 
 #ifdef CONFIG_BT_A2DP_ENABLE
 #include "a2dp_sink.h"
@@ -331,6 +332,7 @@ void app_main(void) {
 #endif
   spiffs_storage_init();
   log_stream_init();
+  runtime_stats_start();
   ESP_ERROR_CHECK(playback_control_init());
   led_init();
 

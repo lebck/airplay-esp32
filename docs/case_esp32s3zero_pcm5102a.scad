@@ -1,287 +1,413 @@
 // ============================================================
-// Snap-fit case for ESP32-S3-Zero + PCM5102A (side by side)
-// Both connectors (USB-C, 3.5mm jack) face the same end.
+// Ventilated snap-fit case: Seeed Studio XIAO ESP32S3 + PCM5102A
+// Historical filename retained. Standard XIAO, without Sense expansion.
+// USB-C and the DAC's jack face the front (Y=0).
+// XIAO: components DOWN, solder side UP. DAC: components UP.
+// XIAO is flipped about its front-to-back axis, so U.FL moves to rear-right.
+// The PCB edge-to-edge gap remains exactly 3 mm, as in the old case.
 //
-// PCM5102A layout: 3.5mm jack is on the LONG edge (32mm side),
-// so the DAC is rotated 90° — its 32mm edge faces front,
-// 17mm goes into depth.
+// XIAO outline: https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/
+// Mechanical reference: XIAO_ESP32S3_v1.1_Dimensioning.dxf + Seeed 3D model.
+// PCM dimensions and jack position retained from the measured old model.
+// PCB thickness, solder, antenna and connector envelopes are fit parameters;
+// check them against the actual assembly before printing the complete case.
+//
+// Print: PETG, 0.2 mm layers, 0.4 mm nozzle, 3 perimeters.
+// Base: floor on bed. Lid: outside face on bed (PART="lid" does this).
+// Small latch overhangs/vent bridges need no generated support.
+// Slide connectors into the front openings, then gently seat the boards.
+// Release the thin PCB fingers outwards to remove boards; do not pull cables.
+//
+// PART="base" / "lid": individual parts, resting on Z=0.
+// PART="both": exploded preview; PART="assembled": closed preview.
+// PART="print": base and inverted lid side by side on the build plate.
+// SHOW_BOARDS only adds ghost geometry in preview, never to exported STLs.
 // ============================================================
-//
-// Print settings: PLA, 0.2mm layer, no supports needed.
-// Print base and lid separately (set PART below).
-//
-// PART = "base"  → bottom half with board cradles
-// PART = "lid"   → snap-fit top cover
-// PART = "both"  → exploded view for preview
 
-PART = "both"; // "base", "lid", or "both"
+PART = "both"; // [base,lid,both,assembled,print]
+SHOW_BOARDS = true;
 
-// ---- Tolerances & print tuning ----
-tol        = 0.3;   // clearance around boards
-snap_tol   = 0.15;  // snap-fit clearance
-wall       = 1.8;   // wall thickness
-floor_t    = 1.5;   // floor / ceiling thickness
-corner_r   = 2.0;   // outer corner radius
+// ---- Fit and print parameters (mm) ----
+tol = 0.30;                  // lateral PCB clearance
+wall = 1.8;
+floor_t = 1.6;
+corner_r = 2.0;
+ledge_h = 7.0;               // shared PCB seating height above inner floor
+support_bite = 0.8;          // only support the bare PCB edge
+clip_t = 0.8;                // two nozzle widths; PETG spring finger
+clip_bite = 0.4;             // lip overlap over PCB edge
+clip_z_tol = 0.25;           // vertical play above the seated PCB
+clip_hook_h = 0.8;           // ramp for pushing PCB into its clips
+clip_relief = 0.8;           // space behind a finger for deflection
 
-// ---- ESP32-S3-Zero dimensions (measured) ----
-esp_l      = 23.5;  // long edge
-esp_w      = 18.0;  // short edge
-esp_pcb_t  = 1.0;   // PCB thickness
-esp_total_h = 5.0;  // total board height (PCB + components)
-esp_comp_h = esp_total_h - esp_pcb_t; // component height above PCB
-esp_usbc_w = 9.0;   // USB-C connector width
-esp_usbc_h = 3.5;   // USB-C connector height from PCB bottom
-esp_usbc_protrude = 1.5; // how far USB-C sticks past PCB edge
+// ---- Seeed Studio XIAO ESP32S3 ----
+esp_w = 17.8;                // X direction
+esp_l = 21.0;                // Y direction, USB at the front
+esp_pcb_t = 1.0;             // fit parameter: measure actual PCB
+esp_corner_r = 1.5;
+esp_total_h = 5.0;           // PCB + components; components now hang below PCB
+esp_comp_h = esp_total_h - esp_pcb_t;
+esp_under_air = 3.0;         // minimum free air below downward-facing components
+esp_usbc_w = 9.0;
+esp_usbc_h = 3.5;
+esp_usbc_protrude = 1.8;
+esp_usb_open_w = 12.0;       // clearance for the USB plug's moulding
+esp_usb_open_h = 6.0;
+esp_ufl_h = 2.5;             // provisional mated U.FL plug envelope below PCB
+esp_clip_w = 1.0;
+// Corners outside the seven solder pads; avoid RESET/BOOT and the U.FL socket.
+esp_clip_y = [0.8, esp_l - 0.8 - esp_clip_w];
 
-// ---- PCM5102A dimensions (measured) ----
-// Physical PCB is 32 x 17 mm. Total height 7mm.
-// Jack is on the 32mm LONG edge, spanning 23mm–29mm from one end.
-// In the case, the DAC is rotated so:
-//   - 32mm edge faces front (X direction in case) = dac_front
-//   - 17mm goes into depth (Y direction in case) = dac_depth
-dac_front  = 32.0;  // dimension along front wall
-dac_depth  = 17.0;  // dimension into the case
-dac_pcb_t  = 1.6;   // PCB thickness
-dac_total_h = 7.0;  // total board height (PCB + components)
-dac_comp_h = dac_total_h - dac_pcb_t; // component height above PCB
-// Jack position along the 32mm front edge (measured from left end of DAC)
-dac_jack_start = 23.0; // jack starts at 23mm
-dac_jack_end   = 29.0; // jack ends at 29mm
-dac_jack_w = dac_jack_end - dac_jack_start; // = 6mm
-dac_jack_h = dac_total_h;  // jack is the tallest component
-dac_jack_protrude = 7.0;   // jack protrusion beyond PCB edge
+// ---- Measured PCM5102A, rotated 90 degrees ----
+dac_front = 32.0;            // long edge along front wall
+dac_depth = 17.0;            // short edge into case
+dac_pcb_t = 1.6;
+dac_total_h = 7.0;
+dac_jack_start = 23.0;
+dac_jack_end = 29.0;
+dac_jack_w = dac_jack_end - dac_jack_start;
+dac_jack_protrude = 7.0;
+dac_clip_w = 2.4;
+// Short front/rear contact patches; long side with I2S wiring stays open.
+// Move these offsets if solder joints on your particular DAC reach its edge.
+dac_clip_x = [3.0, 18.0];
 
-// ---- Board gap ----
-board_gap  = 3.0;   // space between the two boards (wire routing)
+// ---- Layout ----
+board_gap = 3.0;             // UNCHANGED: PCB edge to PCB edge, not centres
+side_clear = 2.4;            // room outside boards for XIAO fingers to flex
+front_clear = 0.6;           // both PCB front edges remain aligned
+headroom = 8.0;              // air and wire space above the tallest board
+rear_service_gap = 6.0;      // finger release, U.FL cable bend and separation
 
-// Ledge height for boards to sit on
-ledge_h    = 1.5;
-ledge_w    = 1.2;
+// ---- Antenna compartment ----
+// Provisional envelope for a small rod antenna, NOT a measured antenna size.
+// Lay the antenna across X behind the boards; retain with two small cable ties.
+// Set antenna_depth to e.g. 19.0 for a flat 37.4 x 17.5 mm Seeed FPC A-02.
+// A top-open rear notch also allows routing the coax to an external antenna.
+antenna_length = 50.0;
+antenna_depth = 12.0;
+antenna_height = 10.0;
+antenna_clear = 0.8;
+antenna_floor_h = 1.0;
+antenna_tie_w = 3.0;
+antenna_tie_h = 1.8;
+antenna_cable_d = 2.4;        // clearance around thin coax; drop it in from above
 
-// ---- Derived dimensions ----
-// Boards sit on small ledges, components face up.
-// Front wall is at Y=0. Both connectors exit through it.
-//
-// Layout (top view, looking down):
-//
-//        FRONT (Y=0) — connectors exit here
-//   ┌────────────────────────────────────────┐
-//   │  ESP32-S3-Zero  │ gap │   PCM5102A     │
-//   │  18 x 23.5      │     │   32 x 17      │
-//   │  USB-C →front   │     │   jack →front   │
-//   └────────────────────────────────────────┘
-//        BACK
-//
-// ESP sits left, DAC sits right (wider along front).
-// ESP is deeper (23.5mm) than DAC (17mm).
+// ---- Lid retention ----
+snap_tol = 0.20;
+lip_t = 0.8;
+lip_h = 4.0;
+lid_snap_w = 5.0;
+lid_snap_bump = 0.45;
+lid_snap_h = 1.2;
+lid_snap_drop = 1.5;          // bump starts this far below seam
+lid_finger_gap = 0.8;
 
-// Internal cavity
-cavity_w = esp_w + board_gap + dac_front + 2*tol;
-cavity_l = esp_l + 2*tol;  // ESP is deeper (23.5 > 17), dictates depth
-max_comp_h = max(esp_total_h, dac_total_h); // 7mm (DAC with jack)
-// Total internal height: ledge + tallest board + generous clearance
-cavity_h = ledge_h + max_comp_h + 15.0;
+// ---- Passive ventilation ----
+vent_w = 2.0;
+vent_pitch = 4.0;
+vent_border = 3.0;
+side_vent_h = 2.0;
 
-// Outer box
+// ---- Derived geometry ----
+// All board positions below use case coordinates (no hidden second offset).
+esp_x = wall + side_clear;
+esp_y = wall + front_clear;
+dac_x = esp_x + esp_w + board_gap;
+dac_y = esp_y;
+pcb_z = floor_t + ledge_h;
+esp_usb_z = pcb_z - esp_usbc_h;
+esp_usb_open_z = esp_usb_z - (esp_usb_open_h-esp_usbc_h)/2;
+esp_usb_open_top = esp_usb_open_z + esp_usb_open_h;
+boards_back = max(esp_y + esp_l, dac_y + dac_depth);
+antenna_y = boards_back + rear_service_gap;
+cavity_w = max(esp_w + board_gap + dac_front + 2*side_clear,
+               antenna_length + 2*antenna_clear);
+cavity_l = antenna_y + antenna_depth + antenna_clear - wall;
 box_w = cavity_w + 2*wall;
 box_l = cavity_l + 2*wall;
-box_h = cavity_h + 2*floor_t; // floor + cavity + ceiling
+base_h = max(pcb_z + max(esp_pcb_t, dac_total_h) + headroom,
+             floor_t + antenna_floor_h + antenna_tie_h + antenna_height + lip_h + 1);
+box_h = base_h + floor_t;
+antenna_x = (box_w - antenna_length)/2;
+// Two separated snap fingers on each side; ventilation lies below them.
+lid_snap_y = [box_l*0.32, box_l*0.73];
+antenna_exit_x = esp_x + esp_w - 3.5; // flipped XIAO: rear-right U.FL
+antenna_exit_z = base_h - lip_h - antenna_cable_d;
+eps = 0.02;
+$fn = 40;
 
-// Both halves same height (split at midpoint)
-base_h = box_h / 2;
-lid_h  = box_h / 2 + 2.0; // +2mm for overlap lip
-
-// Board positions (relative to cavity origin)
-// ESP32: left side, full depth, USB-C at front (Y=0 side)
-esp_x = tol;
-esp_y = tol;  // USB-C faces front
-
-// DAC: right side, shorter depth, jack at front (Y=0 side)
-dac_x = tol + esp_w + board_gap;
-dac_y = tol;  // jack faces front, board extends back 17mm
-
-// ---- Snap-fit parameters ----
-snap_w     = 6.0;
-snap_h     = 1.2;
-snap_bump  = 0.6;
-
-// Snaps on the long sides (front/back walls, since box is wider than deep)
-// and on the short sides
-snap_count_long = 2;  // snaps on each Y-axis wall (left & right sides)
-snap_count_short = 1; // snap on each X-axis wall (front & back)
-
-// ---- Antenna keep-out ----
-// ESP32-S3-Zero antenna is at top-left corner near USB-C end.
-// That's the front-left of the case. Thin the left wall there.
-antenna_window_w = 10.0;
-antenna_window_h = 6.0;
-
-$fn = 30;
+assert(board_gap == 3.0, "Keep the original 3 mm board gap.");
+assert(abs(dac_x - (esp_x + esp_w) - board_gap) < 0.001);
+assert(side_clear > tol + clip_t + clip_bite + clip_relief,
+       "XIAO spring fingers need room to flex outside the PCB.");
+assert(board_gap > tol + clip_t + clip_bite + clip_relief,
+       "Spring finger must not hit the neighbouring DAC.");
+assert(ledge_h >= 3, "Leave room for solder and ventilation below the PCBs.");
+assert(ledge_h - max(esp_comp_h, esp_usbc_h, esp_ufl_h) >= esp_under_air,
+       "Raise both PCB supports to leave air below the inverted XIAO.");
+assert(esp_usb_open_h >= esp_usbc_h + 2*tol && esp_usb_open_z > floor_t,
+       "USB opening must clear the connector and preserve the case floor.");
+assert(lip_h > lid_snap_drop + lid_snap_h);
+assert(antenna_length + 2*antenna_clear <= cavity_w);
+assert(antenna_cable_d > 0 && antenna_exit_z > pcb_z + esp_pcb_t);
+assert(PART == "base" || PART == "lid" || PART == "both" ||
+       PART == "assembled" || PART == "print", "Unknown PART selector.");
+echo(case_mm = [box_w, box_l, box_h], board_gap_mm = board_gap,
+     pcb_under_clearance_mm = ledge_h,
+     xiao_component_air_mm = ledge_h-max(esp_comp_h,esp_usbc_h,esp_ufl_h),
+     antenna_envelope_mm = [antenna_length, antenna_depth, antenna_height]);
 
 // ============================================================
-// Modules
+// Primitives
 // ============================================================
-
 module rounded_box(w, l, h, r) {
-    hull() {
-        for (x = [r, w-r], y = [r, l-r])
-            translate([x, y, 0])
-                cylinder(r=r, h=h);
-    }
+    linear_extrude(h)
+        hull()
+            for (x = [r, w-r], y = [r, l-r])
+                translate([x, y]) circle(r=r);
 }
 
+// Extrude a profile given as [outward, height] along a local edge (X).
+module edge_profile(points, width) {
+    multmatrix([[0,0,1,0], [1,0,0,0], [0,1,0,0], [0,0,0,1]])
+        linear_extrude(width) polygon(points);
+}
+
+// Local board edge is Y=0; PCB lies at negative Y, stem at positive Y.
+// A separate foot supports the underside without shortening the spring arm.
+module pcb_clip(width, pcb_t) {
+    hook_z = pcb_z + pcb_t + clip_z_tol;
+    translate([0, tol, floor_t-eps])
+        cube([width, clip_t, hook_z-floor_t+clip_hook_h+eps]);
+    translate([0, 0, hook_z])
+        edge_profile([[-clip_bite,0], [tol+clip_t,0],
+                      [tol+clip_t,clip_hook_h], [tol,clip_hook_h]], width);
+    // Foot and spring only connect at the case floor.
+    translate([0, -support_bite, floor_t-eps])
+        cube([width, support_bite, ledge_h+eps]);
+}
+
+module pcb_stop(width, pcb_t) {
+    // Rigid front toe for DAC; PCB slides under its small retaining lip.
+    translate([0, -support_bite, floor_t-eps])
+        cube([width, support_bite+tol+clip_t, ledge_h+eps]);
+    translate([0, tol, pcb_z-eps])
+        cube([width, clip_t, pcb_t+clip_z_tol+clip_hook_h+eps]);
+    translate([0, -clip_bite, pcb_z+pcb_t+clip_z_tol])
+        cube([width, tol+clip_t+clip_bite, clip_hook_h]);
+}
+
+module board_mounts() {
+    // Four XIAO clips on the side-edge corners, not across the GPIO rows.
+    for (dy = esp_clip_y) {
+        translate([esp_x, esp_y+dy, 0]) rotate([0,0,90])
+            pcb_clip(esp_clip_w, esp_pcb_t);
+        translate([esp_x+esp_w, esp_y+dy+esp_clip_w, 0]) rotate([0,0,-90])
+            pcb_clip(esp_clip_w, esp_pcb_t);
+    }
+    // Front stops flank the LOWER USB plug opening; no stop enters its width.
+    for (dx = [1.2, esp_w-2.4])
+        translate([esp_x+dx, esp_y-tol-clip_t, floor_t-eps])
+            cube([1.2, clip_t, ledge_h+esp_pcb_t/2+eps]);
+    // Rear stops leave the rear-right U.FL/coax route open BELOW the PCB.
+    for (dx = [2.0, 8.0])
+        translate([esp_x+dx, esp_y+esp_l+tol, floor_t-eps])
+            cube([1.5, clip_t, ledge_h+esp_pcb_t/2+eps]);
+    // DAC front toes and rear fingers keep retention out of the middle of
+    // the inter-board gap; only small corner locators enter the wiring space.
+    for (dx = dac_clip_x) {
+        translate([dac_x+dx+dac_clip_w, dac_y, 0]) rotate([0,0,180])
+            pcb_stop(dac_clip_w, dac_pcb_t);
+        translate([dac_x+dx, dac_y+dac_depth, 0])
+            pcb_clip(dac_clip_w, dac_pcb_t);
+    }
+    // Low corner fences prevent DAC sliding sideways under the front toes.
+    // They end below PCB top, so they do not cover the pin rows.
+    for (dx = [-tol-clip_t, dac_front+tol])
+        translate([dac_x+dx, dac_y+dac_depth-1.2, floor_t-eps])
+            cube([clip_t, 1.0, ledge_h+dac_pcb_t/2+eps]);
+}
+
+module connector_cutouts(z_top) {
+    // Open upwards for installing already-wired boards without threading plugs.
+    translate([esp_x+(esp_w-esp_usb_open_w)/2, -eps, esp_usb_open_z])
+        cube([esp_usb_open_w, wall+2*eps, z_top-esp_usb_open_z+eps]);
+    translate([dac_x+dac_jack_start-tol, -eps, pcb_z+dac_pcb_t-tol])
+        cube([dac_jack_w+2*tol, wall+2*eps,
+              z_top-pcb_z-dac_pcb_t+tol+eps]);
+}
+
+module vent_field(x, y, w, l, z, h) {
+    count = floor((w-2*vent_border+vent_pitch-vent_w)/vent_pitch);
+    used = count*vent_w + (count-1)*(vent_pitch-vent_w);
+    // Short spans across the slots are easy to bridge when slicing.
+    for (i = [0:count-1])
+        translate([x+(w-used)/2+i*vent_pitch, y+vent_border, z])
+            cube([vent_w, l-2*vent_border, h]);
+}
+
+module board_vents(z, h) {
+    vent_field(esp_x, esp_y, esp_w, esp_l, z, h);
+    vent_field(dac_x, dac_y, dac_front, dac_depth, z, h);
+}
+
+module antenna_cable_cutout(z_top) {
+    // U-shaped notch through the rear wall. The lid lip is interrupted too.
+    translate([antenna_exit_x, box_l-wall-eps, antenna_exit_z+antenna_cable_d/2])
+        rotate([-90,0,0]) cylinder(d=antenna_cable_d, h=wall+2*eps);
+    translate([antenna_exit_x-antenna_cable_d/2, box_l-wall-eps,
+               antenna_exit_z+antenna_cable_d/2])
+        cube([antenna_cable_d, wall+2*eps, z_top-antenna_exit_z]);
+}
+
+module antenna_mount() {
+    // Two broad raised saddles with tunnels for loose, replaceable cable ties.
+    // The radiator stays behind the boards, clear of the metal USB/shield/jack.
+    for (fraction = [0.22, 0.78])
+        translate([antenna_x+antenna_length*fraction-3,
+                   antenna_y, floor_t-eps])
+            difference() {
+                cube([6, antenna_depth, antenna_floor_h+antenna_tie_h+eps]);
+                translate([(6-antenna_tie_w)/2, -eps, antenna_floor_h])
+                    cube([antenna_tie_w, antenna_depth+2*eps, antenna_tie_h-0.4]);
+            }
+}
+
+// ============================================================
+// Base and lid
+// ============================================================
 module base() {
-    difference() {
-        // Outer shell
-        rounded_box(box_w, box_l, base_h, corner_r);
-
-        // Cavity
-        translate([wall, wall, floor_t])
-            cube([cavity_w, cavity_l, base_h]);
-
-        // --- Connector cutouts (front wall, Y=0) ---
-        // Full height from floor to top — generous openings
-
-        // USB-C cutout: centered on ESP32's width
-        translate([wall + esp_x + (esp_w - esp_usbc_w)/2 - tol,
-                   -0.1,
-                   floor_t])
-            cube([esp_usbc_w + 2*tol, wall + 0.2, base_h]);
-
-        // 3.5mm jack cutout: at 23–29mm along DAC's 32mm front edge
-        translate([wall + dac_x + dac_jack_start - tol,
-                   -0.1,
-                   floor_t])
-            cube([dac_jack_w + 2*tol, wall + 0.2, base_h]);
-
-        // Antenna relief: thin the left wall near the front
-        // (ESP antenna is at front-left corner)
-        translate([-0.1,
-                   wall - 0.1,
-                   floor_t])
-            cube([wall - 0.4, antenna_window_w, antenna_window_h]);
-    }
-
-    // ---- Board support ledges ----
-
-    // ESP32 ledges (left and right of the 18mm-wide board)
-    for (side = [0, 1]) {
-        translate([wall + esp_x + (side == 0 ? -ledge_w/2 : esp_w - ledge_w/2),
-                   wall + esp_y,
-                   floor_t])
-            cube([ledge_w, esp_l, ledge_h]);
-    }
-    // ESP32 back ledge
-    translate([wall + esp_x,
-               wall + esp_y + esp_l - ledge_w,
-               floor_t])
-        cube([esp_w, ledge_w, ledge_h]);
-
-    // DAC ledges (left and right of the 32mm-wide board, rotated orientation)
-    for (side = [0, 1]) {
-        translate([wall + dac_x + (side == 0 ? -ledge_w/2 : dac_front - ledge_w/2),
-                   wall + dac_y,
-                   floor_t])
-            cube([ledge_w, dac_depth, ledge_h]);
-    }
-    // DAC back ledge
-    translate([wall + dac_x,
-               wall + dac_y + dac_depth - ledge_w,
-               floor_t])
-        cube([dac_front, ledge_w, ledge_h]);
-
-    // ---- Snap-fit hooks ----
-    // Left & right walls (along Y axis)
-    for (side = [0, 1]) {
-        for (i = [0:snap_count_short-1]) {
-            y_pos = box_l * (i + 1) / (snap_count_short + 1);
-            x_pos = side == 0 ? wall : box_w-wall;
-            translate([x_pos, y_pos + snap_w/2, base_h-0.5])
-              rotate([180, 0, 0])
-                mirror([side, 0, 0])
-                    snap_hook();
+    union() {
+        difference() {
+            rounded_box(box_w, box_l, base_h, corner_r);
+            translate([wall, wall, floor_t]) cube([cavity_w, cavity_l, base_h]);
+            connector_cutouts(base_h);
+            board_vents(-eps, floor_t+2*eps);
+            // Low side intakes still admit air when the bottom rests on a table.
+            for (x = [-eps, box_w-wall-eps], y = [7:5:boards_back-3])
+                translate([x,y,floor_t+0.8])
+                    cube([wall+2*eps, 3.0, side_vent_h]);
+            antenna_cable_cutout(base_h);
+            // Matching recesses: lid fingers engage the walls, not free space.
+            for (side = [0,1], y = lid_snap_y)
+                translate([side == 0 ? wall-lid_snap_bump-snap_tol : box_w-wall-eps,
+                           y-lid_snap_w/2-snap_tol,
+                           base_h-lid_snap_drop-lid_snap_h-snap_tol])
+                    cube([lid_snap_bump+snap_tol+eps, lid_snap_w+2*snap_tol,
+                          lid_snap_h+2*snap_tol]);
         }
-    }
-    // Front & back walls (along X axis)
-    for (side = [0, 1]) {
-        for (i = [0:snap_count_short-1]) {
-            x_pos = box_w * (i + 1) / (2);
-            y_pos = side == 0 ? wall : box_l-wall;
-            translate([x_pos-snap_w + snap_w/2, y_pos, base_h-0.5])
-                rotate([180, 0, 90])
-                    mirror([side, 0, 0])
-                        snap_hook();
-        }
+        board_mounts();
+        antenna_mount();
     }
 }
 
-module snap_hook() {
-    difference() {
-        cube([snap_bump + wall*0.1, snap_w, snap_h]);
-        translate([snap_bump, -0.1, -0.1])
-            rotate([0, -30, 0])
-                cube([snap_bump*2, snap_w + 0.2, snap_h + 0.2]);
-    }
-}
-
+// The lid's outside face is at local Z=floor_t; the locating lip points down.
 module lid() {
-    lip_h = 2.0;
-    lip_t = 0.8;
-
     difference() {
         union() {
-            // Outer lid
             rounded_box(box_w, box_l, floor_t, corner_r);
-
-            // Inner lip
-            translate([wall + snap_tol, wall + snap_tol, -lip_h])
-                cube([cavity_w - 2*snap_tol,
-                      cavity_l - 2*snap_tol,
-                      lip_h]);
+            // Close the tall assembly slots above the connectors. These tongues
+            // sit in the front wall, leaving clearance around the actual plugs.
+            for (opening = [[esp_x+(esp_w-esp_usb_open_w)/2,esp_usb_open_w,
+                             esp_usb_open_top],
+                            [dac_x+dac_jack_start-tol,dac_jack_w+2*tol,
+                             pcb_z+dac_total_h+0.5]])
+                translate([opening[0]+snap_tol,snap_tol,opening[2]-base_h])
+                    cube([opening[1]-2*snap_tol,wall-2*snap_tol,
+                          base_h-opening[2]+eps]);
+            // Close the rear assembly notch above the coax without pinching it.
+            translate([antenna_exit_x-antenna_cable_d/2+snap_tol,
+                       box_l-wall+snap_tol,
+                       antenna_exit_z+antenna_cable_d+tol-base_h])
+                cube([antenna_cable_d-2*snap_tol,wall-2*snap_tol,
+                      base_h-antenna_exit_z-antenna_cable_d-tol+eps]);
+            difference() {
+                translate([wall+snap_tol,wall+snap_tol,-lip_h])
+                    cube([cavity_w-2*snap_tol,cavity_l-2*snap_tol,lip_h+eps]);
+                translate([wall+snap_tol+lip_t,wall+snap_tol+lip_t,-lip_h-eps])
+                    cube([cavity_w-2*(snap_tol+lip_t),
+                          cavity_l-2*(snap_tol+lip_t),lip_h+2*eps]);
+                // Isolate four elastic lid fingers, attached only at the roof.
+                for (side = [0,1], y = lid_snap_y, end = [-1,1])
+                    translate([side == 0 ? wall-eps : box_w-wall-snap_tol-lip_t-eps,
+                               y+end*(lid_snap_w/2+lid_finger_gap/2)-lid_finger_gap/2,
+                               -lip_h-eps])
+                        cube([snap_tol+lip_t+2*eps,lid_finger_gap,lip_h+eps]);
+            }
+            // Outward triangular detents, with an insertion ramp at the bottom.
+            for (side = [0,1], y = lid_snap_y)
+                translate([side == 0 ? wall+snap_tol : box_w-wall-snap_tol,
+                           y+ (side == 0 ? -lid_snap_w/2 : lid_snap_w/2),
+                           -lid_snap_drop-lid_snap_h])
+                    rotate([0,0,side == 0 ? 90 : -90])
+                        edge_profile([[-eps,0], [lid_snap_bump,lid_snap_h*0.7],
+                                      [lid_snap_bump,lid_snap_h],[-eps,lid_snap_h]],
+                                     lid_snap_w);
         }
-
-        // Hollow out lip
-        translate([wall + lip_t + snap_tol, wall + lip_t + snap_tol, -lip_h - 0.1])
-            cube([cavity_w - 2*lip_t - 2*snap_tol,
-                  cavity_l - 2*lip_t - 2*snap_tol,
-                  lip_h + 0.2]);
-
+        board_vents(-eps, floor_t+2*eps);
+        // Do not run the locating lip through the USB/jack insertion openings.
+        for (opening = [[esp_x+(esp_w-esp_usb_open_w)/2,esp_usb_open_w],
+                        [dac_x+dac_jack_start-tol,dac_jack_w+2*tol]])
+            translate([opening[0]-tol,wall-eps,-lip_h-eps])
+                cube([opening[1]+2*tol,snap_tol+lip_t+2*eps,lip_h+eps]);
+        translate([antenna_exit_x-antenna_cable_d/2-tol,
+                   box_l-wall-snap_tol-lip_t-eps,-lip_h-eps])
+            cube([antenna_cable_d+2*tol,snap_tol+lip_t+2*eps,lip_h+eps]);
     }
 }
 
-// ============================================================
-// Render
-// ============================================================
-
-if (PART == "base" || PART == "both") {
-    color("SlateGray", 0.9) base();
+module lid_for_print() {
+    translate([0,box_l,floor_t]) rotate([180,0,0]) lid();
 }
 
-if (PART == "lid" || PART == "both") {
-    explode = PART == "both" ? 15 : 0;
-    translate([0, 0, base_h + explode])
-        color("SteelBlue", 0.7) lid();
+// Hardware is defined component-side up in local coordinates, then rotated
+// 180 degrees about Y. This flips X and Z while keeping USB facing forward.
+module xiao_preview() {
+    translate([esp_x+esp_w,esp_y,pcb_z+esp_pcb_t]) rotate([0,180,0]) {
+        color("SeaGreen")
+            rounded_box(esp_w,esp_l,esp_pcb_t,esp_corner_r);
+        color("Silver") translate([(esp_w-esp_usbc_w)/2,-esp_usbc_protrude,esp_pcb_t])
+            cube([esp_usbc_w,7.5,esp_usbc_h]);
+        color("Silver") translate([2.5,6.5,esp_pcb_t])
+            cube([12.8,10,esp_comp_h]);
+        color("Gold") translate([3.5,esp_l-1.6,esp_pcb_t])
+            cylinder(d=3.0,h=esp_ufl_h);
+    }
 }
 
-// ---- Preview: ghost board outlines ----
-if (PART == "both") {
-    // ESP32-S3-Zero
-    %translate([wall + esp_x, wall + esp_y, floor_t + ledge_h])
-        cube([esp_w, esp_l, esp_pcb_t]);
-
-    // PCM5102A (rotated: 32mm along X, 17mm along Y)
-    %translate([wall + dac_x, wall + dac_y, floor_t + ledge_h])
-        cube([dac_front, dac_depth, dac_pcb_t]);
-
-    // 3.5mm jack ghost (at 23–29mm along DAC front edge)
-    %translate([wall + dac_x + dac_jack_start,
-                wall + dac_y - dac_jack_protrude,
-                floor_t + ledge_h + dac_pcb_t])
-        cube([dac_jack_w, dac_jack_protrude, dac_jack_h - dac_pcb_t]);
-
-    // USB-C ghost (protrudes from front of ESP32)
-    %translate([wall + esp_x + (esp_w - esp_usbc_w)/2,
-                wall + esp_y - esp_usbc_protrude,
-                floor_t + ledge_h])
-        cube([esp_usbc_w, esp_usbc_protrude, esp_usbc_h]);
+module coax_preview() {
+    // Reserved cable envelope: underneath rear-right, then up behind the PCB.
+    cable_z = pcb_z-esp_ufl_h+antenna_cable_d/2;
+    points = [[antenna_exit_x,esp_y+esp_l-1.6,cable_z],
+              [antenna_exit_x,boards_back+rear_service_gap/2,cable_z],
+              [antenna_exit_x,antenna_y,
+               floor_t+antenna_floor_h+antenna_tie_h+antenna_height/2]];
+    color("DimGray")
+        for (i = [0:len(points)-2])
+            hull() for (p = [points[i],points[i+1]])
+                translate(p) sphere(d=antenna_cable_d);
 }
+
+module board_preview() {
+    // Approximate envelopes, not detailed component CAD.
+    xiao_preview();
+    coax_preview();
+    color("MediumPurple") translate([dac_x,dac_y,pcb_z])
+        cube([dac_front,dac_depth,dac_pcb_t]);
+    color("DimGray") translate([dac_x+dac_jack_start,
+                                dac_y-dac_jack_protrude,pcb_z+dac_pcb_t])
+        cube([dac_jack_w,dac_jack_protrude+5,dac_total_h-dac_pcb_t]);
+    color("Orange",0.3) translate([antenna_x,antenna_y,
+                                  floor_t+antenna_floor_h+antenna_tie_h])
+        cube([antenna_length,antenna_depth,antenna_height]);
+}
+
+if (PART == "base" || PART == "both" || PART == "assembled" || PART == "print")
+    color("SlateGray") base();
+if (PART == "lid") color("SteelBlue") lid_for_print();
+if (PART == "print") translate([box_w+8,0,0]) color("SteelBlue") lid_for_print();
+if (PART == "both" || PART == "assembled")
+    translate([0,0,base_h+(PART == "both" ? 15 : 0)]) color("SteelBlue",0.85) lid();
+if ($preview && SHOW_BOARDS && (PART == "both" || PART == "assembled" || PART == "base"))
+    %board_preview();

@@ -64,7 +64,7 @@ The defaults allow directly soldered wiring. Check actual PCB thicknesses (`esp_
 
 ## Flash the Firmware
 
-For the XIAO, build this checkout using the **`seeed-xiao-esp32s3`** target below. The plain `esp32s3` target uses a different pin mapping and 16 MB flash settings. `platformio.ini` still defaults to `esp32s3`, so always specify `-e seeed-xiao-esp32s3`.
+For the XIAO, build this checkout using the **`seeed-xiao-esp32s3`** target described below. The plain `esp32s3` target uses a different pin mapping and 16 MB flash settings. `platformio.ini` still defaults to `esp32s3`, so always specify `-e seeed-xiao-esp32s3`.
 
 ## Build with PlatformIO
 
@@ -127,4 +127,3 @@ Once the device is connected to your WiFi, you can update the firmware wirelessl
 3. Use the firmware upload page to flash `.pio/build/seeed-xiao-esp32s3/firmware.bin` (or `build-xiao/airplay2-receiver.bin` with ESP-IDF)
 
 ---
-

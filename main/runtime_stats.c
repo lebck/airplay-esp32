@@ -33,8 +33,8 @@ static void monitor_task(void *arg) {
       int64_t interval = now - previous_time;
       float cpu[portNUM_PROCESSORS];
       for (int core = 0; core < portNUM_PROCESSORS; ++core) {
-        double idle_fraction = (double)(idle[core] - previous_idle[core]) /
-                               (double)interval;
+        double idle_fraction =
+            (double)(idle[core] - previous_idle[core]) / (double)interval;
         // Counters are updated at context switches, so small boundary errors
         // are possible. Report bounded, interval-based percentages.
         cpu[core] = 100.0 * (1.0 - idle_fraction);

@@ -181,8 +181,7 @@ void mdns_airplay_reannounce(void) {
   esp_netif_t *netif = NULL;
   while ((netif = esp_netif_next_unsafe(netif)) != NULL) {
     if (esp_netif_is_netif_up(netif)) {
-      esp_err_t err =
-          mdns_netif_action(netif, MDNS_EVENT_ANNOUNCE_IP4);
+      esp_err_t err = mdns_netif_action(netif, MDNS_EVENT_ANNOUNCE_IP4);
       if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(TAG, "mDNS re-announce failed on %s: %s",
                  esp_netif_get_desc(netif), esp_err_to_name(err));

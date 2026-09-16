@@ -115,6 +115,7 @@ nav:
       - Loud-ESP32 and Esparagus Echo: boards/loud-esp32.md
       - Amped-ESP32: boards/amped-esp32.md
       - Louder-ESP32: boards/louder-esp32.md
+      - Seeed XIAO ESP32S3 + PCM5102A: boards/seeed-xiao-esp32s3.md
       - Seeed XIAO ESP32-C5: boards/xiao-esp32c5.md
       - Custom board: boards/custom.md
   - Features:

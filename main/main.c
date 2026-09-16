@@ -122,8 +122,7 @@ static void log_diagnostics(void) {
   size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   size_t free_spiram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-  size_t min_internal =
-      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+  size_t min_internal = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
 
   int rssi = 0;
   bool have_rssi = false;

@@ -584,6 +584,7 @@ static void handle_get(int socket, rtsp_conn_t *conn, const rtsp_request_t *req,
     plist_dict_string(&p, "deviceid", device_id);
     plist_dict_uint(&p, "features", features);
     plist_dict_string(&p, "model", AIRPLAY_MODEL);
+    plist_dict_string(&p, "manufacturer", AIRPLAY_MANUFACTURER);
     plist_dict_string(&p, "protovers", "1.1");
     plist_dict_string(&p, "srcvers", "377.40.00");
     plist_dict_int(&p, "vv", protocol_version);

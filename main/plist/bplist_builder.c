@@ -538,7 +538,7 @@ size_t bplist_build_info_response(uint8_t *out, size_t capacity,
   }
 
   size_t pos = 0;
-  size_t offsets[39];
+  size_t offsets[41];
   size_t obj = 0;
 
 #define ADD_OFFSET()                                   \
@@ -728,11 +728,20 @@ size_t bplist_build_info_response(uint8_t *out, size_t capacity,
   }
   ADD_OFFSET(); // 38: top-level info dict
   {
-    const uint8_t keys[] = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 28};
-    const uint8_t values[] = {1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 27, 37};
-    if (!bplist_write_dict(out, capacity, &pos, keys, values, 12)) {
+    const uint8_t keys[] = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 28, 39};
+    const uint8_t values[] = {1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 27, 37, 40};
+    if (!bplist_write_dict(out, capacity, &pos, keys, values, 13)) {
       return 0;
     }
+  }
+
+  ADD_OFFSET(); // 39: "manufacturer"
+  if (!bplist_write_ascii_string(out, capacity, &pos, "manufacturer")) {
+    return 0;
+  }
+  ADD_OFFSET(); // 40: manufacturer
+  if (!bplist_write_ascii_string(out, capacity, &pos, AIRPLAY_MANUFACTURER)) {
+    return 0;
   }
 
 #undef ADD_OFFSET

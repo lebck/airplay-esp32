@@ -102,6 +102,7 @@ void mdns_airplay_init(void) {
       {"features", features_str},
       {"flags", AIRPLAY_FLAGS},
       {"model", AIRPLAY_MODEL},
+      {"manufacturer", AIRPLAY_MANUFACTURER},
       {"pk", pk_str},
       {"pi", "00000000-0000-0000-0000-000000000000"}, // Pairing identity UUID
       {"srcvers", AIRPLAY_SOURCE_VERSION},

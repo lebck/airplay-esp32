@@ -44,6 +44,7 @@ class AirPlayInfoTest(unittest.TestCase):
         size, data = self.build_info(b'Office')
         self.assertGreater(size, 0)
         self.assertEqual(plistlib.loads(data)['model'], 'One')
+        self.assertEqual(plistlib.loads(data)['manufacturer'], 'Sonos')
 
     def test_unicode_names(self):
         for name in ('Office', 'Büro', 'ÄÖÜ äöü ß', 'Küche 🎵', '客厅', 'ü'*32, ''):

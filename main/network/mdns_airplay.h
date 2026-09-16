@@ -1,7 +1,8 @@
 #pragma once
 
 // Sonos One model identifier: use the same speaker identity in mDNS and /info.
-#define AIRPLAY_MODEL "One"
+#define AIRPLAY_MODEL        "One"
+#define AIRPLAY_MANUFACTURER "Sonos"
 
 /**
  * Initialize mDNS and advertise AirPlay 2 services

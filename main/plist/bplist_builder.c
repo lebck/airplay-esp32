@@ -2,6 +2,7 @@
 
 #include "audio_stream.h"
 #include "plist.h"
+#include "mdns_airplay.h"
 
 static bool bplist_has_room(size_t pos, size_t need, size_t capacity) {
   return pos <= capacity && need <= capacity - pos;
@@ -45,6 +46,89 @@ static bool bplist_write_ascii_string(uint8_t *out, size_t capacity,
   }
   memcpy(out + *pos, value, len);
   *pos += len;
+  return true;
+}
+
+// Binary plists require UTF-16BE for non-ASCII strings. UTF-8 bytes tagged
+// as ASCII corrupt /info for names such as "Büro".
+static bool utf8_next(const uint8_t **cursor, uint32_t *codepoint) {
+  const uint8_t *p = *cursor;
+  uint32_t cp = *p++;
+  unsigned extra;
+  uint32_t minimum;
+  if (cp < 0x80) {
+    *cursor = p;
+    *codepoint = cp;
+    return true;
+  } else if (cp >= 0xC2 && cp <= 0xDF) {
+    cp &= 0x1F;
+    extra = 1;
+    minimum = 0x80;
+  } else if (cp >= 0xE0 && cp <= 0xEF) {
+    cp &= 0x0F;
+    extra = 2;
+    minimum = 0x800;
+  } else if (cp >= 0xF0 && cp <= 0xF4) {
+    cp &= 0x07;
+    extra = 3;
+    minimum = 0x10000;
+  } else {
+    return false;
+  }
+  for (unsigned i = 0; i < extra; ++i) {
+    // A terminating NUL also fails this check, without reading beyond it.
+    if ((*p & 0xC0) != 0x80) {
+      return false;
+    }
+    cp = (cp << 6) | (*p++ & 0x3F);
+  }
+  if (cp < minimum || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+    return false;
+  }
+  *cursor = p;
+  *codepoint = cp;
+  return true;
+}
+
+static bool bplist_write_utf8_string(uint8_t *out, size_t capacity, size_t *pos,
+                                     const char *value) {
+  const uint8_t *p = (const uint8_t *)value;
+  size_t units = 0;
+  bool ascii = true;
+  while (*p) {
+    uint32_t cp;
+    if (!utf8_next(&p, &cp)) {
+      return false;
+    }
+    ascii = ascii && cp < 0x80;
+    units += cp > 0xFFFF ? 2 : 1;
+    if (units > UINT8_MAX) {
+      return false;
+    }
+  }
+  if (ascii) {
+    return bplist_write_ascii_string(out, capacity, pos, value);
+  }
+  if (!bplist_write_length(out, capacity, pos, 0x60, units) ||
+      !bplist_has_room(*pos, units * 2, capacity)) {
+    return false;
+  }
+  p = (const uint8_t *)value;
+  while (*p) {
+    uint32_t cp;
+    if (!utf8_next(&p, &cp)) {
+      return false;
+    }
+    if (cp > 0xFFFF) {
+      cp -= 0x10000;
+      uint16_t high = 0xD800 | (cp >> 10);
+      out[(*pos)++] = high >> 8;
+      out[(*pos)++] = high & 0xFF;
+      cp = 0xDC00 | (cp & 0x3FF);
+    }
+    out[(*pos)++] = cp >> 8;
+    out[(*pos)++] = cp & 0xFF;
+  }
   return true;
 }
 
@@ -492,7 +576,7 @@ size_t bplist_build_info_response(uint8_t *out, size_t capacity,
     return 0;
   }
   ADD_OFFSET(); // 5: model
-  if (!bplist_write_ascii_string(out, capacity, &pos, "AudioAccessory5,1")) {
+  if (!bplist_write_ascii_string(out, capacity, &pos, AIRPLAY_MODEL)) {
     return 0;
   }
   ADD_OFFSET(); // 6: "protovers"
@@ -549,7 +633,7 @@ size_t bplist_build_info_response(uint8_t *out, size_t capacity,
     return 0;
   }
   ADD_OFFSET(); // 19: device name
-  if (!bplist_write_ascii_string(out, capacity, &pos, device_name)) {
+  if (!bplist_write_utf8_string(out, capacity, &pos, device_name)) {
     return 0;
   }
   ADD_OFFSET(); // 20: "audioFormats"

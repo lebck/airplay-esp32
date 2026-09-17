@@ -46,7 +46,10 @@ set( SRC_FILES
     "dacp_client.c"
 )
 
-# Select audio output implementation at compile time
+# Select audio output implementation at compile time. audio_output_common.c
+# carries weak defaults for the optional entry points, so a backend only has
+# to implement what it actually supports.
+list(APPEND SRC_FILES "audio/audio_output_common.c")
 if(CONFIG_AUDIO_OUTPUT_SPDIF)
     list(APPEND SRC_FILES "audio/audio_output_spdif.c")
 elseif(CONFIG_AUDIO_OUTPUT_USB)
@@ -58,6 +61,7 @@ endif()
 # Bluetooth A2DP sink (only available on ESP32 with Classic BT)
 if(CONFIG_BT_A2DP_ENABLE)
     list(APPEND SRC_FILES "audio/a2dp_sink.c")
+    list(APPEND SRC_FILES "bt_coex.c")
 endif()
 
 # W5500 SPI Ethernet
@@ -92,13 +96,13 @@ set( DEPS
     boards
     dac
     dac_tas58xx
+    dac_tas57xx
     display
     audio-resampler
     esp_eth
     spiffs_storage
 )
 
-# TODO: why these fall over in CI and fine locally...
 # Bluetooth component only needed when A2DP is enabled
 #if(CONFIG_BT_A2DP_ENABLE)
     list(APPEND DEPS bt)

@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 #include "rtsp_events.h"
+#include "settings.h"
 
 #if CONFIG_LED_STATUS_GPIO >= 0 || CONFIG_LED_ERROR_GPIO >= 0
 #include "driver/ledc.h"
@@ -12,7 +13,24 @@
 
 #include <math.h>
 
+// Convert Kconfig boolean values to C macros
+#ifdef CONFIG_LED_STATUS_INVERT
+#define LED_STATUS_INVERT_VAL 1
+#else
+#define LED_STATUS_INVERT_VAL 0
+#endif
+
+#ifdef CONFIG_LED_ERROR_INVERT
+#define LED_ERROR_INVERT_VAL 1
+#else
+#define LED_ERROR_INVERT_VAL 0
+#endif
+
 static const char *TAG = "led";
+
+// Module-level brightness (0–255), shared across all LED types.
+// Loaded from NVS in led_init(); updated by led_set_brightness().
+static uint8_t s_brightness = CONFIG_LED_STATUS_BRIGHTNESS;
 
 // ============================================================================
 // Configuration helpers - map Kconfig to led_mode_t
@@ -93,12 +111,15 @@ static uint8_t s_status_duty = CONFIG_LED_STATUS_BRIGHTNESS;
 static void status_led_set_duty(uint8_t duty) {
   ledc_set_duty(LEDC_LOW_SPEED_MODE, STATUS_LED_CHANNEL, duty);
   ledc_update_duty(LEDC_LOW_SPEED_MODE, STATUS_LED_CHANNEL);
+  ESP_LOGV(TAG, "Status LED duty set to %d", duty);
 }
 
 static void status_timer_cb(TimerHandle_t xTimer) {
   (void)xTimer;
   s_status_on = !s_status_on;
   status_led_set_duty(s_status_on ? s_status_duty : 0);
+  ESP_LOGD(TAG, "Status LED timer: mode=%d, state=%s", s_status_mode,
+           s_status_on ? "ON" : "OFF");
 
   uint32_t period_ms;
   switch (s_status_mode) {
@@ -119,10 +140,15 @@ static void status_timer_cb(TimerHandle_t xTimer) {
   if (ticks == 0) {
     ticks = 1;
   }
-  xTimerChangePeriod(s_status_timer, ticks, 10);
+  BaseType_t ret = xTimerChangePeriod(s_status_timer, ticks, 10);
+  if (ret != pdPASS) {
+    ESP_LOGW(TAG, "Failed to change timer period: %d", ret);
+  }
 }
 
 static void status_led_init(void) {
+  s_status_duty = s_brightness;
+
   ledc_timer_config_t timer_cfg = {
       .speed_mode = LEDC_LOW_SPEED_MODE,
       .timer_num = STATUS_LED_TIMER,
@@ -143,15 +169,23 @@ static void status_led_init(void) {
       .gpio_num = CONFIG_LED_STATUS_GPIO,
       .duty = 0,
       .hpoint = 0,
-      .flags = {.output_invert = true},
+      .flags = {.output_invert = LED_STATUS_INVERT_VAL},
   };
   if (ledc_channel_config(&ch_cfg) != ESP_OK) {
     ESP_LOGE(TAG, "Status LED channel init failed");
     return;
   }
 
+  // Explicitly apply initial duty (off)
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, STATUS_LED_CHANNEL, 0);
+  ledc_update_duty(LEDC_LOW_SPEED_MODE, STATUS_LED_CHANNEL);
+
   s_status_timer = xTimerCreate("status_led", pdMS_TO_TICKS(500), pdFALSE, NULL,
                                 status_timer_cb);
+  if (s_status_timer == NULL) {
+    ESP_LOGE(TAG, "Failed to create status LED timer");
+    return;
+  }
 
   ESP_LOGI(TAG, "Status LED initialized on GPIO %d", CONFIG_LED_STATUS_GPIO);
 }
@@ -160,30 +194,48 @@ static void status_led_set_mode(led_mode_t mode) {
   if (mode == s_status_mode) {
     return;
   }
+  ESP_LOGD(TAG, "Status LED mode change: %d -> %d", s_status_mode, mode);
   s_status_mode = mode;
 
   if (s_status_timer && xTimerIsTimerActive(s_status_timer)) {
-    xTimerStop(s_status_timer, 10);
+    BaseType_t ret = xTimerStop(s_status_timer, 10);
+    if (ret != pdPASS) {
+      ESP_LOGW(TAG, "Failed to stop status LED timer: %d", ret);
+    }
   }
 
   switch (mode) {
   case LED_OFF:
+    ESP_LOGD(TAG, "Status LED: OFF");
     status_led_set_duty(0);
     break;
   case LED_STEADY:
+    ESP_LOGD(TAG, "Status LED: STEADY (duty=%d)", s_status_duty);
     status_led_set_duty(s_status_duty);
     break;
   case LED_BLINK_SLOW:
   case LED_BLINK_MEDIUM:
   case LED_BLINK_FAST:
-    s_status_on = true;
-    status_led_set_duty(s_status_duty);
-    if (s_status_timer) {
-      xTimerStart(s_status_timer, 10);
+    // Reset state and turn LED on for first blink cycle
+    s_status_on =
+        false; // Will be toggled to true immediately in first timer callback
+    if (!s_status_timer) {
+      ESP_LOGE(TAG, "Status LED timer not initialized!");
+      break;
+    }
+    BaseType_t ret = xTimerStart(s_status_timer, 10);
+    if (ret != pdPASS) {
+      ESP_LOGE(TAG, "Failed to start status LED timer: %d", ret);
+    } else {
+      ESP_LOGD(TAG, "Status LED: BLINK mode %d started", mode);
+      // Immediately trigger first state to avoid initial delay
+      status_timer_cb(s_status_timer);
     }
     break;
   case LED_VU:
-    // VU mode handled by led_audio_feed
+    ESP_LOGD(TAG, "Status LED: VU mode (initial OFF)");
+    // Initialize to OFF, will be updated by led_audio_feed()
+    status_led_set_duty(0);
     break;
   }
 }
@@ -192,7 +244,7 @@ static void status_led_set_vu(float norm) {
   if (s_status_mode != LED_VU) {
     return;
   }
-  uint8_t duty = (uint8_t)(norm * 255.0f);
+  uint8_t duty = (uint8_t)(norm * (float)s_status_duty);
   status_led_set_duty(duty);
 }
 
@@ -237,18 +289,22 @@ static void error_led_init(void) {
       .gpio_num = CONFIG_LED_ERROR_GPIO,
       .duty = 0,
       .hpoint = 0,
-      .flags = {.output_invert = true},
+      .flags = {.output_invert = LED_ERROR_INVERT_VAL},
   };
   if (ledc_channel_config(&ch_cfg) != ESP_OK) {
     ESP_LOGE(TAG, "Error LED channel init failed");
     return;
   }
+
+  // Explicitly apply initial duty (off)
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL, 0);
+  ledc_update_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL);
+
   ESP_LOGI(TAG, "Error LED initialized on GPIO %d", CONFIG_LED_ERROR_GPIO);
 }
 
 static void error_led_set(bool on) {
-  ledc_set_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL,
-                on ? CONFIG_LED_STATUS_BRIGHTNESS : 0);
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL, on ? s_brightness : 0);
   ledc_update_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL);
 }
 
@@ -334,12 +390,12 @@ static void rgb_led_set_vu(float norm, float bass_ratio) {
     return;
   }
 
-  if (norm <= 0.0f) {
+  if (norm <= 0.0f || s_brightness == 0) {
     rgb_led_clear();
     return;
   }
 
-  uint8_t val = (uint8_t)(norm * 255.0f);
+  uint8_t val = (uint8_t)(norm * (float)s_brightness);
   if (val < 1) {
     val = 1;
   }
@@ -398,10 +454,11 @@ typedef enum {
 static led_state_t s_prev_state = STATE_STANDBY;
 static led_state_t s_current_state = STATE_STANDBY;
 
-static void apply_state(led_state_t state) {
-  s_prev_state = s_current_state;
-  s_current_state = state;
+static uint8_t scale_bright(uint8_t v) {
+  return (uint8_t)((uint16_t)v * s_brightness / 255);
+}
 
+static void render_state(led_state_t state) {
   switch (state) {
   case STATE_PLAYING:
     status_led_set_mode(get_status_mode_playing());
@@ -415,9 +472,10 @@ static void apply_state(led_state_t state) {
     if (get_rgb_mode_paused() == LED_STEADY) {
 #ifdef CONFIG_LED_RGB_COLOR_PAUSED
       uint32_t c = CONFIG_LED_RGB_COLOR_PAUSED;
-      rgb_led_set_color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+      rgb_led_set_color(scale_bright((c >> 16) & 0xFF),
+                        scale_bright((c >> 8) & 0xFF), scale_bright(c & 0xFF));
 #else
-      rgb_led_set_color(0, 0, 0x33);
+      rgb_led_set_color(0, 0, scale_bright(0x33));
 #endif
     }
     error_led_set(false);
@@ -429,9 +487,10 @@ static void apply_state(led_state_t state) {
     if (get_rgb_mode_standby() == LED_STEADY) {
 #ifdef CONFIG_LED_RGB_COLOR_STANDBY
       uint32_t c = CONFIG_LED_RGB_COLOR_STANDBY;
-      rgb_led_set_color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+      rgb_led_set_color(scale_bright((c >> 16) & 0xFF),
+                        scale_bright((c >> 8) & 0xFF), scale_bright(c & 0xFF));
 #else
-      rgb_led_set_color(0, 0x11, 0);
+      rgb_led_set_color(0, scale_bright(0x11), 0);
 #endif
     }
     error_led_set(false);
@@ -445,14 +504,23 @@ static void apply_state(led_state_t state) {
     // No error LED - use status LED to indicate error
     status_led_set_mode(LED_BLINK_FAST);
 #endif
-    rgb_led_set_color(0x80, 0, 0);
+    rgb_led_set_color(scale_bright(0x80), 0, 0);
     error_led_set(true);
     break;
   }
 }
 
+static void apply_state(led_state_t state) {
+  s_prev_state = s_current_state;
+  s_current_state = state;
+
+  ESP_LOGI(TAG, "LED state change: %d -> %d", s_prev_state, state);
+  render_state(state);
+}
+
 static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
                           void *user_data) {
+  ESP_LOGD(TAG, "RTSP event: %d", event);
   switch (event) {
   case RTSP_EVENT_CLIENT_CONNECTED:
     apply_state(STATE_PAUSED);
@@ -538,6 +606,17 @@ void led_audio_feed(const int16_t *pcm, size_t stereo_samples) {
 // ============================================================================
 
 void led_init(void) {
+  ESP_LOGI(TAG, "Initializing LED subsystem");
+  ESP_LOGI(TAG, "  Status LED GPIO: %d", CONFIG_LED_STATUS_GPIO);
+  ESP_LOGI(TAG, "  Error LED GPIO: %d", CONFIG_LED_ERROR_GPIO);
+  ESP_LOGI(TAG, "  RGB LED GPIO: %d", CONFIG_LED_RGB_GPIO);
+  ESP_LOGI(TAG, "  LED brightness: %d", CONFIG_LED_STATUS_BRIGHTNESS);
+
+  uint8_t saved;
+  if (settings_get_led_brightness(&saved) == ESP_OK) {
+    s_brightness = saved;
+  }
+
   status_led_init();
   error_led_init();
   rgb_led_init();
@@ -545,6 +624,7 @@ void led_init(void) {
   rtsp_events_register(on_rtsp_event, NULL);
 
   // Start in standby
+  ESP_LOGI(TAG, "Starting in STANDBY state");
   apply_state(STATE_STANDBY);
 
   ESP_LOGI(TAG, "LED subsystem initialized");
@@ -552,8 +632,35 @@ void led_init(void) {
 
 void led_set_error(bool error) {
   if (error) {
-    apply_state(STATE_ERROR);
-  } else {
+    if (s_current_state != STATE_ERROR) {
+      apply_state(STATE_ERROR);
+    } else {
+      render_state(STATE_ERROR);
+    }
+  } else if (s_current_state == STATE_ERROR) {
     apply_state(s_prev_state);
   }
+}
+
+esp_err_t led_set_brightness(uint8_t brightness) {
+  esp_err_t err = settings_set_led_brightness(brightness);
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  s_brightness = brightness;
+#if CONFIG_LED_STATUS_GPIO >= 0
+  s_status_duty = brightness;
+  if (s_status_mode == LED_STEADY ||
+      (s_status_mode >= LED_BLINK_SLOW && s_status_on)) {
+    status_led_set_duty(s_status_duty);
+  }
+#endif
+  // Re-render without changing previous/current state history.
+  render_state(s_current_state);
+  return ESP_OK;
+}
+
+uint8_t led_get_brightness(void) {
+  return s_brightness;
 }

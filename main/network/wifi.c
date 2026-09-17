@@ -23,6 +23,8 @@ static EventGroupHandle_t s_wifi_event_group;
 
 // Re-enable AP after this many consecutive failures
 #define AP_REENABLE_THRESHOLD 5
+// lwIP DHCP hostnames are limited to 31 characters plus the trailing NUL.
+#define DHCP_HOSTNAME_MAX_LEN 31
 
 static int s_retry_num = 0;
 static esp_netif_t *s_sta_netif = NULL;
@@ -38,6 +40,21 @@ static wifi_config_t s_ap_config;
 
 static void wifi_select_best_ap(const char *ssid);
 static void scan_and_connect_task(void *arg);
+
+void wifi_set_hostname(const char *device_name) {
+  if (!s_sta_netif || !device_name) {
+    return;
+  }
+  char hostname[DHCP_HOSTNAME_MAX_LEN + 1];
+  settings_device_name_to_hostname(device_name, hostname, sizeof(hostname));
+  esp_err_t err = esp_netif_set_hostname(s_sta_netif, hostname);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set hostname '%s': %s", hostname,
+             esp_err_to_name(err));
+  } else {
+    ESP_LOGI(TAG, "Hostname set to: %s", hostname);
+  }
+}
 
 static void retry_timer_callback(void *arg) {
   if (!s_sta_connected) {
@@ -177,6 +194,36 @@ static void wifi_select_best_ap(const char *ssid) {
     }
   }
 
+#if CONFIG_WIFI_PREFER_5GHZ
+  // Prefer the 5 GHz band when the same SSID is present on both bands.
+  // 5 GHz APs use channels above 14; 2.4 GHz uses channels 1-14. Pick the
+  // strongest AP in each band, then favour 5 GHz unless it is too weak and a
+  // 2.4 GHz AP is available (in which case 2.4 GHz is the more reliable link).
+  int best_5g = -1;
+  int best_24 = -1;
+  for (int i = 0; i < ap_count; i++) {
+    if (ap_list[i].primary > 14) {
+      if (best_5g < 0 || ap_list[i].rssi > ap_list[best_5g].rssi) {
+        best_5g = i;
+      }
+    } else {
+      if (best_24 < 0 || ap_list[i].rssi > ap_list[best_24].rssi) {
+        best_24 = i;
+      }
+    }
+  }
+  if (best_5g >= 0 && (best_24 < 0 || ap_list[best_5g].rssi >=
+                                          CONFIG_WIFI_PREFER_5GHZ_MIN_RSSI)) {
+    best_idx = best_5g;
+    ESP_LOGI(TAG, "Preferring 5 GHz AP (rssi=%d, ch=%d)", ap_list[best_5g].rssi,
+             ap_list[best_5g].primary);
+  } else if (best_5g >= 0) {
+    ESP_LOGI(TAG, "5 GHz AP too weak (rssi=%d < %d), falling back to 2.4 GHz",
+             ap_list[best_5g].rssi, CONFIG_WIFI_PREFER_5GHZ_MIN_RSSI);
+    best_idx = best_24;
+  }
+#endif
+
   ESP_LOGI(TAG, "Found %d APs for SSID '%s', best: " MACSTR " (rssi=%d, ch=%d)",
            ap_count, ssid, MAC2STR(ap_list[best_idx].bssid),
            ap_list[best_idx].rssi, ap_list[best_idx].primary);
@@ -244,6 +291,9 @@ void wifi_init_apsta(const char *ap_ssid, const char *ap_password) {
 
   if (!s_sta_netif) {
     s_sta_netif = esp_netif_create_default_wifi_sta();
+    char dev_name[65];
+    settings_get_device_name(dev_name, sizeof(dev_name));
+    wifi_set_hostname(dev_name);
   }
   if (!s_ap_netif) {
     s_ap_netif = esp_netif_create_default_wifi_ap();

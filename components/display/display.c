@@ -27,6 +27,10 @@ typedef enum {
 
 static u8g2_t s_u8g2;
 
+// Written from whichever task emits the RTSP event (RTSP server, Bluedroid
+// AVRCP callback, button action task, DACP client), read by the render task.
+static portMUX_TYPE s_display_mux = portMUX_INITIALIZER_UNLOCKED;
+
 static struct {
   char title[METADATA_STRING_MAX];
   char artist[METADATA_STRING_MAX];
@@ -38,12 +42,24 @@ static struct {
   int64_t sync_time_us; // esp_timer_get_time() when position was last synced
 } s_display;
 
-// Scroll configuration
-#define SCROLL_PX_PER_TICK 2
-#define SCROLL_GAP_PX      30 // pixel gap before text wraps
-#define SCROLL_PAUSE_TICKS 3  // pause before scrolling restarts
-#define SCROLL_INTERVAL_MS 50 // render interval during active scroll
-#define PAUSE_INDICATOR_W  14 // reserved width for "||" + gap
+// Consistent copy of s_display taken once per frame, so widths measured for a
+// string always match the string that then gets drawn.
+typedef struct {
+  char title[METADATA_STRING_MAX];
+  char artist[METADATA_STRING_MAX];
+  char album[METADATA_STRING_MAX];
+  uint32_t duration_secs;
+  uint32_t position_secs;
+  display_state_t state;
+} display_snapshot_t;
+
+// Scroll configuration. The interval is picked so the step lands on a whole
+// pixel; a fractional step quantises and reads as jitter.
+#define SCROLL_PX_PER_SEC  25  // 3 px per frame at the interval below
+#define SCROLL_GAP_PX      30  // pixel gap before text wraps
+#define SCROLL_PAUSE_TICKS 3   // pause before scrolling restarts
+#define SCROLL_INTERVAL_MS 120 // render interval during active scroll
+#define PAUSE_INDICATOR_W  14  // reserved width for "||" + gap
 
 #if defined(CONFIG_DISPLAY_HEIGHT_32)
 #define NUM_SCROLL_LINES 1
@@ -54,8 +70,26 @@ static struct {
 static struct {
   int offset[NUM_SCROLL_LINES];
   int pause_ticks[NUM_SCROLL_LINES];
+  int step;    // pixels to advance this frame
   bool active; // true if any line is scrolling
 } s_scroll;
+
+// Advance on elapsed time, not per frame, so a late frame steps further rather
+// than scrolling slower.
+static void scroll_tick(void) {
+  static int64_t last_us;
+  static int carry_subpx;
+
+  const int64_t now = esp_timer_get_time();
+  int64_t dt = (last_us == 0) ? (SCROLL_INTERVAL_MS * 1000) : (now - last_us);
+  last_us = now;
+  if (dt > (4 * SCROLL_INTERVAL_MS * 1000)) {
+    dt = 4 * SCROLL_INTERVAL_MS * 1000; // resuming, not catching up
+  }
+  carry_subpx += (int)((dt * SCROLL_PX_PER_SEC * 256) / 1000000);
+  s_scroll.step = carry_subpx / 256;
+  carry_subpx -= s_scroll.step * 256;
+}
 
 static void scroll_reset(void) {
   memset(&s_scroll, 0, sizeof(s_scroll));
@@ -123,9 +157,9 @@ static void draw_scrolling_line(u8g2_t *u8g2, int idx, int y, const char *str,
   if (s_scroll.pause_ticks[idx] > 0) {
     s_scroll.pause_ticks[idx]--;
   } else {
-    s_scroll.offset[idx] += SCROLL_PX_PER_TICK;
+    s_scroll.offset[idx] += s_scroll.step;
     if (s_scroll.offset[idx] >= loop_w) {
-      s_scroll.offset[idx] = 0;
+      s_scroll.offset[idx] -= loop_w;
     }
   }
 }
@@ -135,8 +169,9 @@ static void draw_scrolling_line(u8g2_t *u8g2, int idx, int y, const char *str,
  */
 /**
  * Get the estimated playback position based on wall-clock interpolation.
+ * Caller must hold s_display_mux.
  */
-static uint32_t get_estimated_position(void) {
+static uint32_t estimated_position_locked(void) {
   uint32_t pos = s_display.position_secs;
   if (s_display.state == DISPLAY_STATE_PLAYING && s_display.sync_time_us > 0) {
     int64_t elapsed_us = esp_timer_get_time() - s_display.sync_time_us;
@@ -186,10 +221,76 @@ static void draw_progress(u8g2_t *u8g2, int y, uint32_t pos, uint32_t dur) {
 // Rendering
 // ============================================================================
 
-static void display_render(void) {
-  u8g2_ClearBuffer(&s_u8g2);
+static uint8_t s_shadow[1024];
+static bool s_shadow_valid;
 
-  switch (s_display.state) {
+// Each tile row is a separate blocking I2C transfer, and waiting for those is
+// most of a frame, so resend only the rows whose pixels moved.
+static void send_dirty_rows(void) {
+  const uint8_t *buf = u8g2_GetBufferPtr(&s_u8g2);
+  const uint8_t tiles_w = u8g2_GetBufferTileWidth(&s_u8g2);
+  const uint8_t tiles_h = u8g2_GetBufferTileHeight(&s_u8g2);
+  const size_t row_bytes = (size_t)tiles_w * 8;
+  const size_t total = row_bytes * tiles_h;
+  const uint32_t errors_before = u8g2_esp32_i2c_error_count();
+
+  if (total > sizeof(s_shadow)) {
+    u8g2_SendBuffer(&s_u8g2);
+    return;
+  }
+
+  if (!s_shadow_valid) {
+    u8g2_SendBuffer(&s_u8g2);
+  } else {
+    uint8_t row = 0;
+    while (row < tiles_h) {
+      const size_t off = (size_t)row * row_bytes;
+      if (memcmp(buf + off, s_shadow + off, row_bytes) == 0) {
+        row++;
+        continue;
+      }
+      const uint8_t first = row;
+      while (row < tiles_h) {
+        const size_t run = (size_t)row * row_bytes;
+        if (memcmp(buf + run, s_shadow + run, row_bytes) == 0) {
+          break;
+        }
+        row++;
+      }
+      u8g2_UpdateDisplayArea(&s_u8g2, 0, first, tiles_w,
+                             (uint8_t)(row - first));
+    }
+  }
+
+  // A dropped transfer leaves the panel showing something other than what was
+  // sent, so keep the shadow invalid and repaint in full next frame rather
+  // than recording rows that never landed as clean.
+  if (u8g2_esp32_i2c_error_count() != errors_before) {
+    s_shadow_valid = false;
+    return;
+  }
+
+  memcpy(s_shadow, buf, total);
+  s_shadow_valid = true;
+}
+
+static void display_render(void) {
+  display_snapshot_t snap;
+
+  taskENTER_CRITICAL(&s_display_mux);
+  memcpy(snap.title, s_display.title, sizeof(snap.title));
+  memcpy(snap.artist, s_display.artist, sizeof(snap.artist));
+  memcpy(snap.album, s_display.album, sizeof(snap.album));
+  snap.duration_secs = s_display.duration_secs;
+  snap.position_secs = estimated_position_locked();
+  snap.state = s_display.state;
+  taskEXIT_CRITICAL(&s_display_mux);
+
+  u8g2_ClearBuffer(&s_u8g2);
+  s_scroll.active = false;
+  scroll_tick();
+
+  switch (snap.state) {
   case DISPLAY_STATE_STANDBY:
     u8g2_SetFont(&s_u8g2, u8g2_font_7x14_tf);
 #if defined(CONFIG_DISPLAY_HEIGHT_32)
@@ -210,16 +311,15 @@ static void display_render(void) {
 
   case DISPLAY_STATE_PLAYING:
   case DISPLAY_STATE_PAUSED: {
-    s_scroll.active = false;
-    bool paused = (s_display.state == DISPLAY_STATE_PAUSED);
+    bool paused = (snap.state == DISPLAY_STATE_PAUSED);
     int disp_w = u8g2_GetDisplayWidth(&s_u8g2);
     int top_max_w = paused ? disp_w - PAUSE_INDICATOR_W : disp_w;
 
 #if defined(CONFIG_DISPLAY_HEIGHT_32)
     // Compact 2-line layout: "Title - Artist" (scrolling) + progress bar
     char line[METADATA_STRING_MAX * 2 + 4];
-    const char *title = s_display.title[0] ? s_display.title : "---";
-    const char *artist = s_display.artist[0] ? s_display.artist : "";
+    const char *title = snap.title[0] ? snap.title : "---";
+    const char *artist = snap.artist[0] ? snap.artist : "";
     if (artist[0]) {
       snprintf(line, sizeof(line), "%s - %s", title, artist);
     } else {
@@ -231,29 +331,26 @@ static void display_render(void) {
 
     // Line 2: Progress bar
     u8g2_SetFont(&s_u8g2, u8g2_font_5x8_tf);
-    draw_progress(&s_u8g2, 30, get_estimated_position(),
-                  s_display.duration_secs);
+    draw_progress(&s_u8g2, 30, snap.position_secs, snap.duration_secs);
 #else
     // Full 4-line layout for 128x64 displays
     // Line 1: Title (larger font, clipped for pause indicator)
     u8g2_SetFont(&s_u8g2, u8g2_font_7x14B_tf);
-    draw_scrolling_line(&s_u8g2, 0, 13,
-                        s_display.title[0] ? s_display.title : "---",
+    draw_scrolling_line(&s_u8g2, 0, 13, snap.title[0] ? snap.title : "---",
                         top_max_w);
 
     // Line 2: Artist
     u8g2_SetFont(&s_u8g2, u8g2_font_6x13_tf);
-    draw_scrolling_line(&s_u8g2, 1, 28,
-                        s_display.artist[0] ? s_display.artist : "", disp_w);
+    draw_scrolling_line(&s_u8g2, 1, 28, snap.artist[0] ? snap.artist : "",
+                        disp_w);
 
     // Line 3: Album
-    draw_scrolling_line(&s_u8g2, 2, 42,
-                        s_display.album[0] ? s_display.album : "", disp_w);
+    draw_scrolling_line(&s_u8g2, 2, 42, snap.album[0] ? snap.album : "",
+                        disp_w);
 
     // Line 4: Progress bar with times
     u8g2_SetFont(&s_u8g2, u8g2_font_5x8_tf);
-    draw_progress(&s_u8g2, 62, get_estimated_position(),
-                  s_display.duration_secs);
+    draw_progress(&s_u8g2, 62, snap.position_secs, snap.duration_secs);
 #endif
 
     // Paused indicator (top-right)
@@ -267,7 +364,7 @@ static void display_render(void) {
   }
   }
 
-  u8g2_SendBuffer(&s_u8g2);
+  send_dirty_rows();
 }
 
 // ============================================================================
@@ -277,6 +374,8 @@ static void display_render(void) {
 static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
                           void *user_data) {
   (void)user_data;
+
+  taskENTER_CRITICAL(&s_display_mux);
 
   switch (event) {
   case RTSP_EVENT_CLIENT_CONNECTED:
@@ -299,7 +398,7 @@ static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
 
   case RTSP_EVENT_PAUSED:
     // Freeze position at current estimate before pausing
-    s_display.position_secs = get_estimated_position();
+    s_display.position_secs = estimated_position_locked();
     s_display.sync_time_us = 0;
     s_display.state = DISPLAY_STATE_PAUSED;
     s_display.dirty = true;
@@ -329,12 +428,15 @@ static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
       // progress-only updates arrive with zeroed strings.
       if (data->metadata.title[0]) {
         memcpy(s_display.title, data->metadata.title, METADATA_STRING_MAX);
+        s_display.title[METADATA_STRING_MAX - 1] = '\0';
       }
       if (data->metadata.artist[0]) {
         memcpy(s_display.artist, data->metadata.artist, METADATA_STRING_MAX);
+        s_display.artist[METADATA_STRING_MAX - 1] = '\0';
       }
       if (data->metadata.album[0]) {
         memcpy(s_display.album, data->metadata.album, METADATA_STRING_MAX);
+        s_display.album[METADATA_STRING_MAX - 1] = '\0';
       }
       if (data->metadata.duration_secs) {
         s_display.duration_secs = data->metadata.duration_secs;
@@ -352,6 +454,8 @@ static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
     }
     break;
   }
+
+  taskEXIT_CRITICAL(&s_display_mux);
 }
 
 // ============================================================================
@@ -363,6 +467,7 @@ static void display_task(void *pvParameters) {
   const TickType_t interval = pdMS_TO_TICKS(CONFIG_DISPLAY_UPDATE_MS);
   const TickType_t one_sec = pdMS_TO_TICKS(1000);
   const TickType_t scroll_interval = pdMS_TO_TICKS(SCROLL_INTERVAL_MS);
+  TickType_t last_wake = xTaskGetTickCount();
 
   // Initial render
   display_render();
@@ -370,18 +475,29 @@ static void display_task(void *pvParameters) {
   while (1) {
     bool is_playing = (s_display.state == DISPLAY_STATE_PLAYING);
     if (s_scroll.active) {
-      vTaskDelay(scroll_interval);
+      // A plain delay would add each render to the frame period, tying the
+      // scroll speed to I2C timing rather than to the clock.
+      if (xTaskDelayUntil(&last_wake, scroll_interval) == pdFALSE) {
+        // Already past the deadline, so xTaskDelayUntil did not block. Yield
+        // the minimum to keep the loop from spinning, then restart the cadence
+        // from now; waiting out another whole interval would stall the scroll
+        // exactly when it is already behind.
+        vTaskDelay(1);
+        last_wake = xTaskGetTickCount();
+      }
       s_display.dirty = false;
       display_render();
       continue;
     }
     if (is_playing) {
       vTaskDelay(one_sec);
+      last_wake = xTaskGetTickCount();
       s_display.dirty = false;
       display_render();
       continue;
     }
     vTaskDelay(interval);
+    last_wake = xTaskGetTickCount();
     if (s_display.dirty) {
       s_display.dirty = false;
       display_render();
@@ -537,7 +653,8 @@ void display_init(void *bus) {
   // Register for RTSP events
   rtsp_events_register(on_rtsp_event, NULL);
 
-  // Start display refresh task
+  // Start display refresh task. Left unpinned: SendBuffer blocks eight times a
+  // frame, and the audio core wakes every 5.8 ms, so affinity there is costly.
   xTaskCreate(display_task, "display", 4096, NULL, 3, NULL);
 
   ESP_LOGI(TAG, "OLED display initialized");

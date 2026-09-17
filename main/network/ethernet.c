@@ -4,6 +4,7 @@
 
 #include "ethernet.h"
 
+#include "settings.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -15,6 +16,7 @@
 #include "esp_eth_netif_glue.h"
 #include "esp_eth_phy.h"
 #include "esp_mac.h"
+#include "board_utils.h"
 #include "iot_board.h"
 
 #include <string.h>
@@ -22,6 +24,8 @@
 static const char *TAG = "ethernet";
 
 #define ETH_SPI_CLOCK_MHZ 20
+// lwIP DHCP hostnames are limited to 31 characters plus the trailing NUL.
+#define DHCP_HOSTNAME_MAX_LEN 31
 
 static esp_netif_t *s_eth_netif = NULL;
 static esp_eth_handle_t s_eth_handle = NULL;
@@ -125,6 +129,10 @@ esp_err_t ethernet_init(void) {
   w5500_config.int_gpio_num = BOARD_ETH_INT_GPIO;
 #if BOARD_ETH_INT_GPIO < 0
   w5500_config.poll_period_ms = 10;
+#else
+  // The W5500 driver registers its own per-pin handler, so the shared ISR
+  // service must already exist (boards without a fault pin don't install it).
+  board_gpio_isr_init();
 #endif
 
   // Create MAC instance
@@ -173,6 +181,11 @@ esp_err_t ethernet_init(void) {
   esp_eth_netif_glue_handle_t glue = esp_eth_new_netif_glue(s_eth_handle);
   ESP_ERROR_CHECK(esp_netif_attach(s_eth_netif, glue));
 
+  // Set hostname before DHCP starts
+  char dev_name[65];
+  settings_get_device_name(dev_name, sizeof(dev_name));
+  ethernet_set_hostname(dev_name);
+
   // Start Ethernet
   ret = esp_eth_start(s_eth_handle);
   if (ret != ESP_OK) {
@@ -183,6 +196,21 @@ esp_err_t ethernet_init(void) {
   ESP_LOGI(TAG, "W5500 Ethernet initialized (CS=%d, INT=%d, RST=%d)",
            BOARD_ETH_CS_GPIO, BOARD_ETH_INT_GPIO, BOARD_ETH_RST_GPIO);
   return ESP_OK;
+}
+
+void ethernet_set_hostname(const char *device_name) {
+  if (!s_eth_netif || !device_name) {
+    return;
+  }
+  char hostname[DHCP_HOSTNAME_MAX_LEN + 1];
+  settings_device_name_to_hostname(device_name, hostname, sizeof(hostname));
+  esp_err_t err = esp_netif_set_hostname(s_eth_netif, hostname);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set hostname '%s': %s", hostname,
+             esp_err_to_name(err));
+  } else {
+    ESP_LOGI(TAG, "Hostname set to: %s", hostname);
+  }
 }
 
 bool ethernet_is_connected(void) {

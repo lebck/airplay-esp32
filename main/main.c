@@ -1,6 +1,5 @@
 #include "audio_output.h"
 #include "audio_receiver.h"
-#include "audio_stream.h"
 #include "buttons.h"
 #include "spiram_task.h"
 #include "display.h"
@@ -23,11 +22,21 @@
 
 #ifdef CONFIG_BT_A2DP_ENABLE
 #include "a2dp_sink.h"
+#include "bt_coex.h"
+#endif
+
+#ifdef CONFIG_DAC_TAS57XX
+#include "dac_tas57xx.h"
+#endif
+
+#ifdef CONFIG_DAC_TAS58XX
+#include "dac_tas58xx.h"
 #endif
 
 #include "iot_board.h"
-#include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -113,8 +122,7 @@ static void log_diagnostics(void) {
   size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   size_t free_spiram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-  size_t min_internal =
-      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+  size_t min_internal = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
 
   int rssi = 0;
   bool have_rssi = false;
@@ -218,9 +226,11 @@ static void on_bt_state_changed(bool connected) {
   if (connected) {
     ESP_LOGI(TAG, "BT connected — disabling AirPlay");
     stop_airplay_services();
+    bt_coex_post(BT_COEX_EVT_BT_CONNECTED);
     playback_control_set_source(PLAYBACK_SOURCE_BLUETOOTH);
   } else {
     ESP_LOGI(TAG, "BT disconnected — re-enabling AirPlay");
+    bt_coex_post(BT_COEX_EVT_BT_DISCONNECTED);
     playback_control_set_source(PLAYBACK_SOURCE_NONE);
     if (ethernet_is_connected() || wifi_is_connected()) {
       start_airplay_services();
@@ -240,15 +250,21 @@ static void on_airplay_client_event(rtsp_event_t event,
   case RTSP_EVENT_CLIENT_CONNECTED:
     ESP_LOGI(TAG, "AirPlay client connected — disabling BT");
     bt_a2dp_sink_set_discoverable(false);
+    bt_coex_post(BT_COEX_EVT_AIRPLAY_CONNECTED);
+    break;
+  case RTSP_EVENT_PLAYING:
+    bt_coex_post(BT_COEX_EVT_AIRPLAY_PLAYING);
     break;
   case RTSP_EVENT_PAUSED:
-    // V1 grace period active — keep BT hidden so the phone reconnects
-    // to AirPlay rather than falling back to BT.
-    ESP_LOGI(TAG, "AirPlay paused — keeping BT hidden");
+    // Session still active — BT stays suspended and hidden so the phone
+    // reconnects to AirPlay rather than falling back to BT.
+    ESP_LOGI(TAG, "AirPlay paused — keeping BT suspended and hidden");
+    bt_coex_post(BT_COEX_EVT_AIRPLAY_PAUSED);
     break;
   case RTSP_EVENT_DISCONNECTED:
-    ESP_LOGI(TAG, "AirPlay client disconnected — enabling BT");
+    ESP_LOGI(TAG, "AirPlay client disconnected — BT resumes after idle delay");
     bt_a2dp_sink_set_discoverable(true);
+    bt_coex_post(BT_COEX_EVT_AIRPLAY_DISCONNECTED);
     break;
   default:
     break;
@@ -257,6 +273,8 @@ static void on_airplay_client_event(rtsp_event_t event,
 #endif
 
 void app_main(void) {
+  ESP_LOGW(TAG, "Boot: reset reason %d", (int)esp_reset_reason());
+
   // Initialize NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -266,6 +284,51 @@ void app_main(void) {
   }
   ESP_ERROR_CHECK(ret);
   ESP_ERROR_CHECK(settings_init());
+#ifdef CONFIG_DAC_TAS57XX
+  // Load persisted sub level offset (pre-init safe; applied on first volume).
+  float sub_off;
+  if (settings_get_sub_offset(&sub_off) == ESP_OK) {
+    dac_tas57xx_set_sub_offset_db(sub_off);
+  }
+#elif defined(CONFIG_DAC_TAS58XX)
+  // Load persisted sub level offset (pre-init safe; applied on first volume).
+  float sub_off;
+  if (settings_get_sub_offset(&sub_off) == ESP_OK) {
+    dac_tas58xx_set_sub_offset_db(sub_off);
+  }
+  float sub_xo;
+  if (settings_get_sub_crossover(&sub_xo) == ESP_OK) {
+    dac_tas58xx_set_sub_crossover_hz(sub_xo);
+  }
+  static float sub_eq[2][SETTINGS_WAY_BANDS];
+  if (settings_get_sub_eq(sub_eq) == ESP_OK) {
+    dac_tas58xx_sub_eq_set_gains(TAS58XX_WAY_LOW, sub_eq[0]);
+    dac_tas58xx_sub_eq_set_gains(TAS58XX_WAY_HIGH, sub_eq[1]);
+  }
+  // Second-amplifier role must be known before the DAC is initialised.
+  uint8_t dual_mode;
+  if (settings_get_dual_mode(&dual_mode) == ESP_OK) {
+    if (!TAS58XX_BIAMP_SUPPORTED && dual_mode == TAS58XX_DUAL_BIAMP) {
+      dual_mode = TAS58XX_DUAL_SUB;
+    }
+    dac_tas58xx_set_dual_mode((tas58xx_dual_mode_t)dual_mode);
+  }
+  float biamp_xo;
+  if (settings_get_biamp_crossover(&biamp_xo) == ESP_OK) {
+    dac_tas58xx_set_biamp_crossover_hz(biamp_xo);
+  }
+  bool biamp_swap;
+  if (settings_get_biamp_swap(&biamp_swap) == ESP_OK) {
+    dac_tas58xx_set_biamp_swap(biamp_swap);
+  }
+  static float biamp_eq[2][2][SETTINGS_WAY_BANDS];
+  if (settings_get_biamp_eq(biamp_eq) == ESP_OK) {
+    for (int spk = 0; spk < 2; spk++) {
+      dac_tas58xx_biamp_set_gains(spk, TAS58XX_WAY_LOW, biamp_eq[spk][0]);
+      dac_tas58xx_biamp_set_gains(spk, TAS58XX_WAY_HIGH, biamp_eq[spk][1]);
+    }
+  }
+#endif
   spiffs_storage_init();
   log_stream_init();
   runtime_stats_start();
@@ -288,10 +351,9 @@ void app_main(void) {
   display_init(iot_board_get_handle(BOARD_I2C_DISP_ID));
 #endif
 
-  // Pre-allocate audio task stacks while internal heap is still unfragmented.
-  // WiFi/TCP/TLS allocations fragment the heap, making large contiguous
-  // allocations unreliable later.
-  ESP_ERROR_CHECK(audio_realtime_preallocate());
+  // Initialize LVGL-dependent board resources (e.g., touch input) after
+  // display/LVGL port is ready.
+  iot_board_init_lvgl_resources();
 
   // Try ethernet first
   bool eth_available = false;
@@ -354,10 +416,23 @@ void app_main(void) {
     if (bt_err != ESP_OK) {
       ESP_LOGE(TAG, "BT A2DP init failed: %s", esp_err_to_name(bt_err));
     } else {
+      if (bt_coex_start() != ESP_OK) {
+        ESP_LOGE(TAG, "BT coexistence task start failed");
+      }
       rtsp_events_register(on_airplay_client_event, NULL);
     }
   }
 #endif
+
+  // Boot baseline: free internal DRAM once WiFi (and BT, where enabled) are
+  // resident but before any stream is active.  Compare against the
+  // "Buffered start" log to see the headroom available for WiFi/TCP buffers.
+  ESP_LOGI(TAG,
+           "Boot baseline: free heap %lu internal (largest block %lu), "
+           "%lu SPIRAM",
+           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
   buttons_init();
 

@@ -77,9 +77,29 @@ static esp_err_t usb_input_cb(uint8_t *buf, size_t len, size_t *bytes_read,
 
 static void apply_volume(int16_t *buf, size_t n) {
 #ifndef CONFIG_DAC_CONTROLS_VOLUME
-  int32_t vol = airplay_get_volume_q15();
+  // Ramp toward the target gain instead of applying volume changes
+  // instantly.  An abrupt gain step mid-waveform is a discontinuity scaled
+  // by the signal's current amplitude — the classic volume "zipper" click,
+  // audible on every step of the sender's volume slider.  Approach the
+  // target exponentially, stepping once per stereo frame (even indices) so
+  // both channels always carry the same gain; the /256 divisor gives a
+  // ~3 ms time constant and a worst-case per-frame gain step of ~0.4%,
+  // with a minimum step of 1 so the ramp always completes.
+  static int32_t cur_q15 = -1;
+  int32_t target = airplay_get_volume_q15();
+  if (cur_q15 < 0) {
+    cur_q15 = target; // first call: no audio has played yet, jump silently
+  }
   for (size_t i = 0; i < n; i++) {
-    buf[i] = (int16_t)(((int32_t)buf[i] * vol) >> 15);
+    if ((i & 1) == 0 && cur_q15 != target) {
+      int32_t diff = target - cur_q15;
+      int32_t step = diff / 256;
+      if (step == 0) {
+        step = diff > 0 ? 1 : -1;
+      }
+      cur_q15 += step;
+    }
+    buf[i] = (int16_t)(((int32_t)buf[i] * cur_q15) >> 15);
   }
 #endif
 }
@@ -174,8 +194,8 @@ esp_err_t audio_output_init(void) {
 }
 
 void audio_output_start(void) {
-  xTaskCreatePinnedToCore(playback_task, "usb_play", 4096, NULL, 7, NULL,
-                          PLAYBACK_CORE);
+  xTaskCreatePinnedToCore(playback_task, "usb_play", 4096, NULL,
+                          AUDIO_PLAYBACK_TASK_PRIORITY, NULL, PLAYBACK_CORE);
 }
 
 void audio_output_flush(void) {
@@ -188,3 +208,12 @@ void audio_output_set_source_rate(int rate) {
     resample_reinit_needed = true;
   }
 }
+
+uint32_t audio_output_get_hardware_latency_us(void) {
+  // USB isochronous audio: ~2ms double-buffered endpoint latency.
+  return 2000;
+}
+
+/* The UAC driver exposes neither a transfer-completion cursor nor an underrun
+ * count, and there is no channel routing to control, so the weak defaults in
+ * audio_output_common.c cover the rest of the API. */

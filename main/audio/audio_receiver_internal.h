@@ -14,7 +14,6 @@
 #include "audio_receiver.h"
 #include "audio_stream.h"
 #include "audio_timing.h"
-#include "spiram_task.h"
 
 #define MAX_RTP_PACKET_SIZE 2048
 
@@ -40,7 +39,6 @@ typedef struct {
   int buffered_client_socket;
   uint16_t buffered_port;
   TaskHandle_t buffered_task_handle;
-  spiram_task_mem_t buffered_task_mem;
   uint8_t *buffered_recv_buffer;
 
   uint8_t *decrypt_buffer;
@@ -53,6 +51,10 @@ typedef struct {
   struct sockaddr_in client_control_addr; // Client's control address for NACKs
   bool retransmit_enabled;                // True when client address is set
   int64_t last_resend_error_time_us;      // Backoff timer on sendto failure
+  bool rtp_sequence_valid;
+  uint16_t resend_window_first;
+  uint64_t resend_missing_mask;
+  int64_t resend_last_request_time_us;
 
   // Post-seek RTP gates: together they form a window [discard_before_rtp,
   // discard_above_rtp] around the new anchor.  Frames outside the window are
@@ -78,8 +80,35 @@ typedef struct {
   // seek: flush empties buffer before anchor arrives, so seek detection in
   // set_anchor_time would otherwise find no oldest_rtp and skip arming).
   bool arm_gate_on_next_anchor;
+  // Set by audio_receiver_seek_flush() to reject ALL incoming frames until
+  // the next SETRATEANCHORTIME provides a valid anchor.  Without this, stale
+  // TCP data (from the old track still draining the socket buffer) fills the
+  // ring buffer between FLUSHBUFFERED and the anchor, causing a second flush
+  // and doubling the startup delay.
+  bool discard_all_until_anchor;
+
+  // Snapshot of the expected RTP position taken the moment the sender signals
+  // PAUSE (SETRATEANCHORTIME rate=0).  Path B in audio_receiver_set_anchor_time
+  // uses this as the reference when comparing the new anchor on RESUME, so
+  // that a long pause does not make the wall-clock-elapsed estimate overshoot
+  // by (pause_duration × sample_rate) and false-trigger a seek flush.
+  // Cleared on flush/reset and consumed after one use.
+  uint32_t paused_rtp;
+  bool paused_rtp_valid;
 } audio_receiver_state_t;
 
+// Lightweight RTP gate used by the buffered TCP task before decrypt/decode.
+// Returns false for frames that belong to the pre-seek/old-track backlog.
+bool audio_stream_accept_timestamp(audio_receiver_state_t *state,
+                                   uint32_t timestamp);
+
+// Decode and queue a frame whose timestamp has already passed the RTP gate.
+bool audio_stream_process_accepted_frame(audio_receiver_state_t *state,
+                                         uint32_t timestamp,
+                                         const uint8_t *audio_data,
+                                         size_t audio_len);
+
+// Convenience entry point for realtime paths: gate, then decode and queue.
 bool audio_stream_process_frame(audio_receiver_state_t *state,
                                 uint32_t timestamp, const uint8_t *audio_data,
                                 size_t audio_len);

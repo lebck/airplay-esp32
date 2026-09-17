@@ -9,6 +9,22 @@ menu "Airplay ESP Configuration"
             help
                 Brightness level for the status LED (0=off, 255=max).
 
+        config LED_STATUS_INVERT
+            bool "Invert Status LED output (active-low)"
+            default y
+            help
+                If enabled, the status LED output is inverted (active-low).
+                Use this if your LED is connected with inverted logic
+                (e.g., LED cathode to GPIO instead of anode).
+
+        config LED_ERROR_INVERT
+            bool "Invert Error LED output (active-low)"
+            default y
+            help
+                If enabled, the error LED output is inverted (active-low).
+                Use this if your LED is connected with inverted logic
+                (e.g., LED cathode to GPIO instead of anode).
+
         menu "Status LED Behavior"
             choice LED_STATUS_ON_PLAYING
                 prompt "Status LED when playing"
@@ -114,6 +130,29 @@ menu "Airplay ESP Configuration"
         default 1
         help
             Be careful you might not see the access point if you use a channel not allowed in your country.
+
+    config WIFI_PREFER_5GHZ
+        bool "Prefer 5 GHz band when joining a network"
+        default n
+        help
+            When a network with the configured SSID is available on both the
+            2.4 GHz and 5 GHz bands (dual-band routers usually share one SSID),
+            prefer connecting to the 5 GHz access point. Falls back to 2.4 GHz
+            when no 5 GHz AP is found or the 5 GHz signal is too weak.
+
+            Only chips with a dual-band radio (e.g. ESP32-C5) can use 5 GHz;
+            on 2.4 GHz-only chips this option has no effect.
+
+    config WIFI_PREFER_5GHZ_MIN_RSSI
+        int "Minimum 5 GHz RSSI to prefer (dBm)"
+        default -75
+        range -95 -30
+        depends on WIFI_PREFER_5GHZ
+        help
+            If the best 5 GHz AP is weaker than this RSSI (in dBm) and a
+            2.4 GHz AP for the same SSID is available, fall back to 2.4 GHz
+            for a more reliable link. Lower (more negative) values make the
+            receiver stick to 5 GHz even at weak signal.
     endmenu
 
     menu "Audio Output"
@@ -222,7 +261,7 @@ menu "Airplay ESP Configuration"
                 config DISPLAY_DRIVER_SH1107
                     bool "SH1107 (128x128) OLED"
                 config DISPLAY_DRIVER_ST7789
-                    bool "ST7789 TFT (320x170 landscape)"
+                    bool "ST7789 TFT"
             endchoice
 
             choice DISPLAY_HEIGHT
@@ -313,6 +352,36 @@ menu "Airplay ESP Configuration"
                     help
                         GPIO pin for the display backlight.
                         Set to -1 if not used or always on.
+
+                config DISPLAY_ST7789_WIDTH
+                    int "ST7789 display width"
+                    default 320
+                    depends on DISPLAY_DRIVER_ST7789
+                    help
+                        Horizontal resolution exposed to LVGL after panel
+                        rotation/mirroring.
+
+                config DISPLAY_ST7789_HEIGHT
+                    int "ST7789 display height"
+                    default 170
+                    depends on DISPLAY_DRIVER_ST7789
+                    help
+                        Vertical resolution exposed to LVGL after panel
+                        rotation/mirroring.
+
+                config DISPLAY_ST7789_GAP_X
+                    int "ST7789 panel X gap"
+                    default 0
+                    depends on DISPLAY_DRIVER_ST7789
+                    help
+                        X offset passed to esp_lcd_panel_set_gap().
+
+                config DISPLAY_ST7789_GAP_Y
+                    int "ST7789 panel Y gap"
+                    default 35
+                    depends on DISPLAY_DRIVER_ST7789
+                    help
+                        Y offset passed to esp_lcd_panel_set_gap().
             endif
 
             config DISPLAY_FLIP
@@ -332,15 +401,21 @@ menu "Airplay ESP Configuration"
 
     menu "AirPlay Protocol"
         config AIRPLAY_FORCE_V1
-            bool "Force AirPlay v1 (classic) protocol"
+            bool "Legacy mode: advertise AirPlay v1 (classic) only"
             default n
             help
-                Force the receiver to advertise as an AirPlay v1 (classic)
-                device only. This disables AirPlay 2 features (HomeKit
-                pairing, encrypted transport) but enables DACP remote
-                control — iOS sends DACP-ID and Active-Remote headers in
-                AirPlay v1 mode, allowing hardware buttons to control
-                playback on the source device.
+                By default the receiver accepts BOTH AirPlay 1 (classic
+                RAOP, used by TuneBlade, AirMusic, shairtunes2, older iOS
+                fallback) and AirPlay 2 (HomeKit pairing, HAP-encrypted
+                transport, used by current iOS). Protocol selection is
+                automatic based on the request shape.
+
+                Enable this option only if AirPlay 2 advertisement causes
+                problems on your network (e.g. iOS preferring AirPlay 2
+                with broken FairPlay verification). It hides the
+                _airplay._tcp service entirely, leaving only _raop._tcp
+                for classic RAOP clients. iOS will fall back to AirPlay 1
+                with DACP remote control.
 
                 When disabled (default), the receiver advertises as an
                 AirPlay 2 device. Modern iOS uses the MRP (Media Remote
@@ -352,6 +427,46 @@ menu "Airplay ESP Configuration"
                 audio encryption in this codebase. The receiver will
                 advertise et=0 (no encryption). If iOS refuses to connect,
                 audio encryption support may need to be added.
+
+        config AIRPLAY_TIMING_THRESHOLD_MS
+            int "Early/late timing threshold for buffered streams (ms)"
+            default 25
+            range 2 200
+            help
+                Maximum amount a frame may be early or late (in milliseconds)
+                before the timing engine holds it as pending (early) or drops
+                it (late). Buffered AirPlay 2 streams (AAC, type 103) have a
+                deep jitter buffer, so a tight threshold keeps tight sync
+                without causing drop-outs.
+
+                This must stay comfortably above the I2S DMA ring's own
+                jitter (about +/-3 ms with the default 8x256 descriptor
+                config) plus PTP filter excursions, otherwise normal
+                scheduling noise crosses the threshold and good audio is
+                discarded. Steady-state accuracy is maintained by the
+                one-sample drift servo rather than by a tight threshold, so
+                lowering this does not improve sync — it only increases the
+                chance of dropouts.
+
+        config AIRPLAY_RT_TIMING_THRESHOLD_MS
+            int "Early/late timing threshold for unbuffered streams (ms)"
+            default 50
+            range 2 500
+            help
+                Same as above but for unbuffered realtime streams (ALAC over
+                UDP, type 96). Realtime streams have little or no jitter
+                buffer to absorb scheduling hiccups (e.g. when image/metadata
+                arrives on the RTSP connection), so a tight threshold causes
+                audible drop-outs. A larger threshold tolerates the jitter at
+                the cost of slightly looser sync. Increase this if you still
+                hear drop-outs on AirPlay 1 / realtime playback.
+
+        config ENABLE_AIRPLAY_ARTWORK
+            bool "Enable cover-art / artwork reception"
+            default n
+            help
+                Receive cover-art images. Enable it only if you have a display
+                cabable of and want album art.
     endmenu
 
     menu "Button Configuration"
@@ -396,5 +511,13 @@ menu "Airplay ESP Configuration"
             help
                 GPIO pin for the previous track button (active-low, internal pull-up).
                 Set to -1 to disable.
+
+        config BTN_PLAY_PAUSE_DOUBLE_CLICK
+            bool "Play/Pause double-click cycles channel mode"
+            default n
+            help
+                When enabled, a single play/pause press is deferred until the
+                double-click window expires. Two presses within that window
+                cycle the audio channel mode instead of play/pause.
     endmenu
 endmenu

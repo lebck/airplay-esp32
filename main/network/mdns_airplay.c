@@ -14,6 +14,10 @@
 
 static const char *TAG = "mdns_airplay";
 
+// Longest single DNS label (RFC 1035). The mDNS component caps names at
+// MDNS_NAME_MAX_LEN, which is never smaller than this.
+#define MDNS_HOSTNAME_MAX_LEN 63
+
 // Feature flags are defined in rtsp_handlers.h (shared with /info handler)
 
 // Protocol version
@@ -27,6 +31,18 @@ static const char *TAG = "mdns_airplay";
 // Flags: 0x4 = audio receiver
 #define AIRPLAY_FLAGS "0x4"
 
+// Metadata types advertised in the "md" txt record:
+//   0 = text (track title/artist/album), 1 = artwork (cover art images),
+//   2 = progress.
+// When artwork is disabled, drop "1" so senders do not transmit cover art
+// (which can stall the audio pipeline and cause drop-outs on realtime
+// streams) while still sending text and progress metadata.
+#ifdef CONFIG_ENABLE_AIRPLAY_ARTWORK
+#define AIRPLAY_METADATA_TYPES "0,1,2"
+#else
+#define AIRPLAY_METADATA_TYPES "0,2"
+#endif
+
 void mdns_airplay_init(void) {
   char mac_str[18];
   char device_id[18];
@@ -34,9 +50,13 @@ void mdns_airplay_init(void) {
   char service_name[80];
   char pk_str[65]; // 32 bytes = 64 hex chars + null
   char device_name[65];
+  char hostname[MDNS_HOSTNAME_MAX_LEN + 1];
 
-  // Get device name from settings
+  // Get device name from settings. This is the user-facing name and stays
+  // UTF-8 for the service instance names below; only the hostname is
+  // restricted to ASCII.
   settings_get_device_name(device_name, sizeof(device_name));
+  settings_device_name_to_hostname(device_name, hostname, sizeof(hostname));
 
   // Get MAC address
   wifi_get_mac_str(mac_str, sizeof(mac_str));
@@ -61,8 +81,16 @@ void mdns_airplay_init(void) {
   // Initialize mDNS
   ESP_ERROR_CHECK(mdns_init());
 
-  // Set hostname
-  ESP_ERROR_CHECK(mdns_hostname_set(device_name));
+  // Set hostname. A bad name must not panic the device, so this is logged
+  // like the service registrations below rather than ESP_ERROR_CHECK'd.
+  esp_err_t err_host = mdns_hostname_set(hostname);
+  if (err_host != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set mDNS hostname '%s': %s", hostname,
+             esp_err_to_name(err_host));
+  } else {
+    ESP_LOGI(TAG, "mDNS hostname: %s.local (device name: %s)", hostname,
+             device_name);
+  }
 
 #ifndef CONFIG_AIRPLAY_FORCE_V1
   // ========================================
@@ -74,6 +102,7 @@ void mdns_airplay_init(void) {
       {"features", features_str},
       {"flags", AIRPLAY_FLAGS},
       {"model", AIRPLAY_MODEL},
+      {"manufacturer", AIRPLAY_MANUFACTURER},
       {"pk", pk_str},
       {"pi", "00000000-0000-0000-0000-000000000000"}, // Pairing identity UUID
       {"srcvers", AIRPLAY_SOURCE_VERSION},
@@ -99,31 +128,37 @@ void mdns_airplay_init(void) {
   // AirPlay v1 (classic RAOP): match squeezelite-esp32 txt record format.
   // No features, no pk, no HAP pairing — just classic RAOP fields.
   mdns_txt_item_t raop_txt[] = {
-      {"am", AIRPLAY_MODEL}, {"tp", "UDP"}, // Transport protocol
-      {"sm", "false"},                      // Sharing mode
-      {"sv", "false"},                      // Server version (unused)
-      {"ek", "1"},                          // Encryption key available
-      {"et", "0,1"},                        // Encryption types: none, RSA
-      {"md", "0,1,2"},                      // Metadata types
-      {"cn", "0,1"},                        // Audio codecs: PCM, ALAC
-      {"ch", "2"},                          // Channels
-      {"ss", "16"},                         // Sample size (bits)
-      {"sr", "44100"},                      // Sample rate
-      {"vn", "3"},                          // Version number
-      {"txtvers", "1"},                     // TXT record version
+      {"am", AIRPLAY_MODEL},
+      {"tp", "UDP"},                  // Transport protocol
+      {"sm", "false"},                // Sharing mode
+      {"sv", "false"},                // Server version (unused)
+      {"ek", "1"},                    // Encryption key available
+      {"et", "0,1"},                  // Encryption types: none, RSA
+      {"md", AIRPLAY_METADATA_TYPES}, // Metadata types
+      {"cn", "0,1"},                  // Audio codecs: PCM, ALAC
+      {"ch", "2"},                    // Channels
+      {"ss", "16"},                   // Sample size (bits)
+      {"sr", "44100"},                // Sample rate
+      {"vn", "3"},                    // Version number
+      {"txtvers", "1"},               // TXT record version
   };
 #else
+  // Dual-mode: include et=1 (RSA) so RAOP-only clients (TuneBlade, AirMusic,
+  // shairtunes2, etc.) accept the advertisement, while keeping et=3,5 for
+  // AirPlay 2 FairPlay/MFi-SAP. ek=1 advertises that an RSA-encrypted key
+  // can be supplied via SDP rsaaeskey: at ANNOUNCE time.
   mdns_txt_item_t raop_txt[] = {
       {"am", AIRPLAY_MODEL},
-      {"cn", "0,1,2,3"},     // Audio codecs: PCM, ALAC, AAC, AAC-ELD
-      {"da", "true"},        // Digest auth
-      {"et", "0,3,5"},       // Encryption types
-      {"ft", features_str},  // Features (same as airplay)
-      {"md", "0,1,2"},       // Metadata types
-      {"pk", pk_str},        // Public key
-      {"sf", AIRPLAY_FLAGS}, // Status flags
-      {"tp", "UDP"},         // Transport protocol
-      {"vn", "65537"},       // Version number
+      {"cn", "0,1,2,3"},              // Audio codecs: PCM, ALAC, AAC, AAC-ELD
+      {"da", "true"},                 // Digest auth
+      {"ek", "1"},                    // Encryption key available (RSA)
+      {"et", "0,1,3,5"},              // Encryption types
+      {"ft", features_str},           // Features (same as airplay)
+      {"md", AIRPLAY_METADATA_TYPES}, // Metadata types
+      {"pk", pk_str},                 // Public key
+      {"sf", AIRPLAY_FLAGS},          // Status flags
+      {"tp", "UDP"},                  // Transport protocol
+      {"vn", "65537"},                // Version number
       {"vs", AIRPLAY_SOURCE_VERSION},
       {"vv", AIRPLAY_PROTOCOL_VERSION},
   };
@@ -147,8 +182,7 @@ void mdns_airplay_reannounce(void) {
   esp_netif_t *netif = NULL;
   while ((netif = esp_netif_next_unsafe(netif)) != NULL) {
     if (esp_netif_is_netif_up(netif)) {
-      esp_err_t err =
-          mdns_netif_action(netif, MDNS_EVENT_ANNOUNCE_IP4);
+      esp_err_t err = mdns_netif_action(netif, MDNS_EVENT_ANNOUNCE_IP4);
       if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(TAG, "mDNS re-announce failed on %s: %s",
                  esp_netif_get_desc(netif), esp_err_to_name(err));

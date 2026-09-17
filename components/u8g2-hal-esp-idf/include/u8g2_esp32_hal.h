@@ -17,7 +17,16 @@
 
 #define U8G2_ESP32_HAL_UNDEFINED GPIO_NUM_NC
 
-#if SOC_I2C_NUM > 1
+// Select the master I2C port. I2C_NUM_1 only exists on chips with more than one
+// high-power I2C peripheral. Note SOC_I2C_NUM counts LP I2C ports too (e.g. the
+// ESP32-C5/C6 have 1 HP + 1 LP = 2), so gate on SOC_HP_I2C_NUM when available.
+#if defined(SOC_HP_I2C_NUM)
+#if SOC_HP_I2C_NUM > 1
+#define I2C_MASTER_NUM I2C_NUM_1 //  I2C port number for master dev
+#else
+#define I2C_MASTER_NUM I2C_NUM_0 //  I2C port number for master dev
+#endif
+#elif SOC_I2C_NUM > 1
 #define I2C_MASTER_NUM I2C_NUM_1 //  I2C port number for master dev
 #else
 #define I2C_MASTER_NUM I2C_NUM_0 //  I2C port number for master dev
@@ -25,9 +34,9 @@
 
 #define I2C_MASTER_TX_BUF_DISABLE 0      //  I2C master do not need buffer
 #define I2C_MASTER_RX_BUF_DISABLE 0      //  I2C master do not need buffer
-#define I2C_MASTER_FREQ_HZ        100000 //  I2C master clock frequency
+#define I2C_MASTER_FREQ_HZ        400000 //  I2C master clock frequency
 #define ACK_CHECK_EN              0x1 //  I2C master will check ack from slave
-#define ACK_CHECK_DIS             0x0 //  I2C master will not check ack from slave
+#define ACK_CHECK_DIS 0x0 //  I2C master will not check ack from slave
 
 /** @public
  * HAL configuration structure.
@@ -91,6 +100,14 @@ void u8g2_esp32_hal_set_i2c_bus(i2c_master_bus_handle_t bus);
  * Must be called after u8g2_esp32_hal_init().
  */
 void u8g2_esp32_hal_set_spi_host(spi_host_device_t host);
+
+/**
+ * Number of I2C transfers that have failed since boot.
+ * The byte callback cannot report a failure back through u8g2, so a caller
+ * that caches what it has already sent needs this to tell that a transfer was
+ * dropped and its cache no longer matches the panel.
+ */
+uint32_t u8g2_esp32_i2c_error_count(void);
 
 uint8_t u8g2_esp32_spi_byte_cb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int,
                                void *arg_ptr);

@@ -4,6 +4,7 @@
 .venv/
 .venv-zensical/
 .vscode/
+.projectatlas/
 # Anchored to the repo root — an unanchored "build*" also swallows files like
 # docs/reference/build-environments.md and .github/workflows/build.yml.
 /build*

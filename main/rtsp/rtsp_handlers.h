@@ -14,6 +14,7 @@
  */
 
 // Key bits:
+//   Bit 26: HasUnifiedAdvertiserInfo (classifies third-party speakers)
 //   Bit 38: SupportsCoreUtilsPairingAndEncryption
 //   Bit 46: SupportsHKPairingAndAccessControl
 //   Bit 48: SupportsTransientPairing
@@ -23,7 +24,7 @@
 #define AIRPLAY_FEATURES_LO 0x5C4A00
 #else
 #define AIRPLAY_FEATURES_HI 0x1C340
-#define AIRPLAY_FEATURES_LO 0x405C4A00
+#define AIRPLAY_FEATURES_LO 0x445C4A00
 #endif
 
 // Audio buffer size for buffered streams (type 103)

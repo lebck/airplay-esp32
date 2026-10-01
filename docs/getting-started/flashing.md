@@ -55,6 +55,20 @@ Each board has an **Install** button for the latest release and, beside it, a da
       <span slot="not-allowed"></span>
     </esp-web-install-button>
 
+-   __Seeed XIAO ESP32S3 + external DAC__
+
+    For the 8 MB XIAO with the [PCM5102A wiring](../boards/seeed-xiao-esp32s3.md).
+
+    <esp-web-install-button manifest="/airplay-esp32/firmware/seeed-xiao-esp32s3.json">
+      <button slot="activate" class="md-button md-button--primary">Install</button>
+      <span slot="unsupported">Your browser cannot flash over USB. Use Chrome, Edge or Opera on desktop.</span>
+      <span slot="not-allowed">Flashing needs a secure (HTTPS) connection.</span>
+    </esp-web-install-button><esp-web-install-button class="install-beta" manifest="/airplay-esp32/firmware/beta/seeed-xiao-esp32s3.json">
+      <button slot="activate" class="md-button md-button--beta">Install beta</button>
+      <span slot="unsupported"></span>
+      <span slot="not-allowed"></span>
+    </esp-web-install-button>
+
 -   __Waveshare ESP32-S3__
 
     For Waveshare ESP32-S3 boards.

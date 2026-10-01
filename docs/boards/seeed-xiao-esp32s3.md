@@ -64,7 +64,12 @@ The defaults allow directly soldered wiring. Check actual PCB thicknesses (`esp_
 
 ## Flash the Firmware
 
-For the XIAO, build this checkout using the **`seeed-xiao-esp32s3`** target described below. The plain `esp32s3` target uses a different pin mapping and 16 MB flash settings. `platformio.ini` still defaults to `esp32s3`, so always specify `-e seeed-xiao-esp32s3`.
+Use the [browser installer](../getting-started/flashing.md#option-a-install-from-your-browser)
+or download `airplay2-receiver-seeed-xiao-esp32s3.bin` from a GitHub release.
+For a local build, use the **`seeed-xiao-esp32s3`** target described below.
+The plain `esp32s3` target uses a different pin mapping and 16 MB flash settings.
+`platformio.ini` still defaults to `esp32s3`, so always specify
+`-e seeed-xiao-esp32s3`.
 
 ## Build with PlatformIO
 

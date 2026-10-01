@@ -8,6 +8,7 @@ Every PlatformIO environment defined in `platformio.ini`. The default is `esp32s
 | --- | --- | --- | --- |
 | `esp32s3` | ESP32-S3 | 16 MB | Default. External I2S DAC such as a PCM5102A |
 | `esp32s3-jtag` | ESP32-S3 | 16 MB | Extends `esp32s3`, uploads over built-in USB JTAG |
+| `seeed-xiao-esp32s3` | ESP32-S3 | 8 MB | Seeed XIAO with external I2S DAC |
 | `waveshare-esp32s3` | ESP32-S3 | 16 MB | Waveshare ESP32-S3 pin arrangement |
 | `esp32c5-xiao` | ESP32-C5 | 8 MB | Seeed XIAO, needs the community pioarduino platform |
 | `esp32wrover-dev` | ESP32 | 4 MB | Freenove WROVER, includes Bluetooth |
@@ -91,7 +92,7 @@ idf.py -DSDKCONFIG_DEFAULTS="config/sdkconfig.defaults;config/sdkconfig.defaults
 CI builds a subset of environments and attaches them to each release. These are the ones
 available in the [browser installer](../getting-started/flashing.md):
 
-`esp32s3`, `waveshare-esp32s3`, `esp32s2`, `squeezeamp-bt`, `squeezeamp-4m`, `smartamp`,
+`esp32s3`, `seeed-xiao-esp32s3`, `waveshare-esp32s3`, `esp32s2`, `squeezeamp-bt`, `squeezeamp-4m`, `smartamp`,
 `esparagus-audio-brick-bt`, `esparagus-audio-brick-s3`, `esparagus-audio-brick-dual-dac`,
 `esparagus-audio-brick-dual-uac`, `esparagus-louder-bt`, `esparagus-louder-s3`,
 `esparagus-echo`, `hifi-esp32-bt`, `hifi-esparagus-bt`, `hifi-esp32-s3`,

@@ -55,6 +55,12 @@ typedef struct {
   uint32_t buffer_underruns;
   uint32_t buffer_overruns;
   uint32_t late_frames;
+  uint32_t rtp_missing;
+  uint32_t nack_sent;
+  uint32_t nack_errors;
+  uint32_t retransmits_received;
+  uint32_t retransmits_accepted;
+  uint32_t resend_abandoned;
   uint16_t last_seq;
   uint32_t last_timestamp;
 } audio_stats_t;

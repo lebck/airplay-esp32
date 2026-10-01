@@ -98,6 +98,15 @@ int main(void) {
   assert(played == 352);
   assert(timing.playout_started);
   assert(!timing.pending_valid);
+
+  // A retransmit for the already-played first frame may arrive while that
+  // frame waits pending. It must not be emitted a second time.
+  memmove(queued + 1, queued, (size_t)queued_count * sizeof(*queued));
+  queued[0] = 0;
+  queued_count++;
+  now_us = 3003000;
+  assert(audio_timing_read(&timing, &buffer, &stream, &stats, out, 353) == 352);
+  assert(timing.expected_rtp == 704);
   free(timing.pending_frame);
 
   // A genuinely separated old island is still discarded before startup.

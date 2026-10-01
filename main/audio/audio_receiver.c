@@ -32,8 +32,7 @@ static void audio_receiver_reset_stats(void) {
 
 static void audio_receiver_reset_resend_state(void) {
   receiver.rtp_sequence_valid = false;
-  receiver.resend_window_first = 0;
-  receiver.resend_missing_mask = 0;
+  audio_resend_window_clear(&receiver.resend_window);
   receiver.resend_last_request_time_us = 0;
   receiver.last_resend_error_time_us = 0;
 }

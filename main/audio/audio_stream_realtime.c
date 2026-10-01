@@ -14,15 +14,15 @@
 #include "esp_timer.h"
 
 #include "audio_crypto.h"
+#include "audio_resend.h"
 #include "network/socket_utils.h"
 
 #define RTP_HEADER_SIZE          12
 #define AUDIO_RECV_STACK_SIZE    12288
 #define AUDIO_CTRL_STACK_SIZE    4096
-#define RESEND_WINDOW_BITS       64
 #define RESEND_RETRY_INTERVAL_US 250000 // Match common RAOP resend cadence
 #define RESEND_ERROR_BACKOFF_US  300000 // Backoff after sendto failure
-#define MAX_RESEND_GAP           RESEND_WINDOW_BITS
+#define MAX_RESEND_GAP           AUDIO_RESEND_MAX_REQUEST
 
 #if CONFIG_FREERTOS_UNICORE
 #define AUDIO_TASK_CORE 0
@@ -83,39 +83,13 @@ static const uint8_t *parse_rtp(const uint8_t *packet, size_t len,
   return packet + header_len;
 }
 
-static uint64_t resend_mask_for_count(uint16_t count) {
-  return count >= RESEND_WINDOW_BITS ? UINT64_MAX : ((1ULL << count) - 1ULL);
-}
-
-static void resend_slide_window(audio_receiver_state_t *state) {
-  while (state->resend_missing_mask != 0 &&
-         (state->resend_missing_mask & 1ULL) == 0) {
-    state->resend_missing_mask >>= 1;
-    state->resend_window_first++;
+static bool resend_mark_received(audio_receiver_state_t *state, uint16_t seq) {
+  if (!audio_resend_window_mark(&state->resend_window, seq)) {
+    return false;
   }
-
-  if (state->resend_missing_mask == 0) {
+  if (audio_resend_window_empty(&state->resend_window)) {
     state->resend_last_request_time_us = 0;
   }
-}
-
-static bool resend_mark_received(audio_receiver_state_t *state, uint16_t seq) {
-  if (state->resend_missing_mask == 0) {
-    return false;
-  }
-
-  uint16_t offset = (uint16_t)(seq - state->resend_window_first);
-  if (offset >= RESEND_WINDOW_BITS) {
-    return false;
-  }
-
-  uint64_t bit = 1ULL << offset;
-  if ((state->resend_missing_mask & bit) == 0) {
-    return false;
-  }
-
-  state->resend_missing_mask &= ~bit;
-  resend_slide_window(state);
   return true;
 }
 
@@ -125,45 +99,11 @@ static void resend_track_missing(audio_receiver_state_t *state,
     return;
   }
 
-  if (state->resend_missing_mask == 0) {
-    state->resend_window_first = first_seq;
-    state->resend_missing_mask = resend_mask_for_count(count);
-    return;
+  if (audio_resend_window_track(&state->resend_window, first_seq, count)) {
+    // The sender has moved more than four seconds past the oldest hole.
+    state->resend_last_request_time_us = 0;
+    state->stats.resend_abandoned++;
   }
-
-  uint16_t offset = (uint16_t)(first_seq - state->resend_window_first);
-  if (offset >= RESEND_WINDOW_BITS || offset + count > RESEND_WINDOW_BITS) {
-    // A newer gap is outside the small recovery window; abandon stale holes.
-    state->resend_window_first = first_seq;
-    state->resend_missing_mask = resend_mask_for_count(count);
-    return;
-  }
-
-  state->resend_missing_mask |= resend_mask_for_count(count) << offset;
-}
-
-static bool resend_next_range(const audio_receiver_state_t *state,
-                              uint16_t *first_seq, uint16_t *count) {
-  if (state->resend_missing_mask == 0 || !first_seq || !count) {
-    return false;
-  }
-
-  uint64_t mask = state->resend_missing_mask;
-  uint16_t first = state->resend_window_first;
-  while ((mask & 1ULL) == 0) {
-    mask >>= 1;
-    first++;
-  }
-
-  uint16_t range_count = 0;
-  while ((mask & 1ULL) != 0 && range_count < RESEND_WINDOW_BITS) {
-    range_count++;
-    mask >>= 1;
-  }
-
-  *first_seq = first;
-  *count = range_count;
-  return range_count > 0;
 }
 
 /* Send an AirTunes retransmission request for missing sequence numbers.
@@ -198,10 +138,12 @@ static bool send_resend_request(audio_receiver_state_t *state,
                        sizeof(state->client_control_addr));
   if (ret < 0) {
     state->last_resend_error_time_us = now;
+    state->stats.nack_errors++;
     ESP_LOGD(TAG, "NACK sendto failed: %d", errno);
     return false;
   } else {
     state->last_resend_error_time_us = 0;
+    state->stats.nack_sent++;
     ESP_LOGD(TAG, "NACK sent: seq=%u count=%u", first_seq, count);
     return true;
   }
@@ -210,21 +152,29 @@ static bool send_resend_request(audio_receiver_state_t *state,
 static void resend_request_range(audio_receiver_state_t *state,
                                  uint16_t first_seq, uint16_t count) {
   if (send_resend_request(state, first_seq, count)) {
-    state->resend_last_request_time_us = esp_timer_get_time();
+    // A newly discovered gap gets an immediate request, but must not defer
+    // periodic retries for older unresolved gaps.
+    if (state->resend_last_request_time_us == 0) {
+      state->resend_last_request_time_us = esp_timer_get_time();
+    }
   }
 }
 
 static void resend_retry_if_due(audio_receiver_state_t *state) {
   uint16_t first_seq = 0;
   uint16_t count = 0;
-  if (!resend_next_range(state, &first_seq, &count)) {
+  if (!audio_resend_window_next_range(&state->resend_window, &first_seq,
+                                      &count)) {
     return;
   }
 
   int64_t now = esp_timer_get_time();
   if (state->resend_last_request_time_us == 0 ||
       (now - state->resend_last_request_time_us) >= RESEND_RETRY_INTERVAL_US) {
-    resend_request_range(state, first_seq, count);
+    if (send_resend_request(state, first_seq, count)) {
+      state->resend_last_request_time_us = now;
+      state->resend_window.retry_after_seq = (uint16_t)(first_seq + count);
+    }
   }
 }
 
@@ -247,6 +197,7 @@ static bool track_regular_rtp_sequence(audio_receiver_state_t *state,
     uint16_t gap = (uint16_t)delta;
     if (gap <= MAX_RESEND_GAP) {
       state->stats.packets_dropped += gap;
+      state->stats.rtp_missing += gap;
       resend_track_missing(state, expected_seq, gap);
       resend_request_range(state, expected_seq, gap);
     } else {
@@ -314,10 +265,12 @@ static bool realtime_receive_packet(audio_stream_t *stream, uint8_t *packet,
   }
 
   if (is_retransmit) {
+    state->stats.retransmits_received++;
     if (!resend_mark_received(state, seq)) {
       ESP_LOGD(TAG, "Dropping stale retransmit seq=%u", seq);
       return true;
     }
+    state->stats.retransmits_accepted++;
     resend_retry_if_due(state);
   } else if (!track_regular_rtp_sequence(state, seq)) {
     return true;

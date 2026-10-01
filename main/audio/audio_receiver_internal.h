@@ -12,6 +12,7 @@
 #include "audio_buffer.h"
 #include "audio_decoder.h"
 #include "audio_receiver.h"
+#include "audio_resend.h"
 #include "audio_stream.h"
 #include "audio_timing.h"
 
@@ -52,8 +53,7 @@ typedef struct {
   bool retransmit_enabled;                // True when client address is set
   int64_t last_resend_error_time_us;      // Backoff timer on sendto failure
   bool rtp_sequence_valid;
-  uint16_t resend_window_first;
-  uint64_t resend_missing_mask;
+  audio_resend_window_t resend_window;
   int64_t resend_last_request_time_us;
 
   // Post-seek RTP gates: together they form a window [discard_before_rtp,

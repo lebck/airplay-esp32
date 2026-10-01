@@ -611,15 +611,17 @@ size_t audio_timing_read(audio_timing_t *timing, audio_buffer_t *buffer,
     // Without this, the post-gap frame (typically ~8 ms early, far inside
     // the 50 ms realtime threshold) played immediately — an audible skip
     // AND a permanent early shift of the whole playback position for every
-    // unrecovered packet.  At or below expected_rtp is contiguous audio (or
-    // a duplicate from a redundant resend, which is played because repeating
-    // at most one frame keeps the stream moving); its schedule slot begins
-    // the instant the previous frame ends, so it is normally released
-    // straight away by the wide threshold below.
+    // unrecovered packet. A frame below expected_rtp is an old retransmit
+    // or duplicate. Replaying it goes backward in the audio and causes an
+    // audible skip, especially after an early startup frame was held pending.
     bool gap = false;
     if (!from_pending && timing->playout_started &&
         timing->expected_rtp_valid) {
       int32_t cont_delta = (int32_t)(hdr->rtp_timestamp - timing->expected_rtp);
+      if (cont_delta < 0) {
+        audio_buffer_return(buffer, item);
+        continue;
+      }
       if (cont_delta > 0) {
         gap = true;
         timing->gaps++;
@@ -699,11 +701,11 @@ size_t audio_timing_read(audio_timing_t *timing, audio_buffer_t *buffer,
           // early frame that just needs to wait its pre-buffer depth (~1.5 s).
           if (!from_pending) {
             timing->consecutive_early_frames++;
-            // Log the first early frame after each anchor set (shows lead
-            // time before audio starts) and every 50 new frames after that
-            // (confirms the counter only counts real buffer reads, not
-            // pending re-checks).
-            if (timing->consecutive_early_frames == 1) {
+            // Log the initial prebuffer wait before playout starts.  During
+            // playback, a gap can make every following frame the "first"
+            // early frame again; logging each one blocks the playback task.
+            if (!timing->playout_started &&
+                timing->consecutive_early_frames == 1) {
               ESP_LOGI(TAG,
                        "First early frame: rtp=%" PRIu32 " early=%.1f ms"
                        " quick_start=%d buffered=%d",
@@ -842,10 +844,18 @@ size_t audio_timing_read(audio_timing_t *timing, audio_buffer_t *buffer,
           ESP_LOGI(TAG,
                    "Playout: err=%lld ms buffered=%d depth=%lld ms "
                    "ptp_gap=%lld us outliers=%" PRIu32 " gaps=%" PRIu32
-                   " under=%" PRIu32 " rtp=%" PRIu32,
+                   " under=%" PRIu32 " rxmiss=%" PRIu32
+                   " nack=%" PRIu32 "/%" PRIu32 " rtx=%" PRIu32
+                   "/%" PRIu32 " evict=%" PRIu32 " rtp=%" PRIu32,
                    (long long)(on_time_err_us / 1000LL), buffered_frames,
                    (long long)depth_ms, (long long)ptp_gap_us, ps.outlier_count,
                    timing->gaps, audio_output_get_underruns(),
+                   stats ? stats->rtp_missing : 0,
+                   stats ? stats->nack_sent : 0,
+                   stats ? stats->nack_errors : 0,
+                   stats ? stats->retransmits_accepted : 0,
+                   stats ? stats->retransmits_received : 0,
+                   stats ? stats->resend_abandoned : 0,
                    played_rtp_timestamp);
         }
 

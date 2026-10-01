@@ -844,19 +844,17 @@ size_t audio_timing_read(audio_timing_t *timing, audio_buffer_t *buffer,
           ESP_LOGI(TAG,
                    "Playout: err=%lld ms buffered=%d depth=%lld ms "
                    "ptp_gap=%lld us outliers=%" PRIu32 " gaps=%" PRIu32
-                   " under=%" PRIu32 " rxmiss=%" PRIu32
-                   " nack=%" PRIu32 "/%" PRIu32 " rtx=%" PRIu32
-                   "/%" PRIu32 " evict=%" PRIu32 " rtp=%" PRIu32,
+                   " under=%" PRIu32 " rxmiss=%" PRIu32 " nack=%" PRIu32
+                   "/%" PRIu32 " rtx=%" PRIu32 "/%" PRIu32 " evict=%" PRIu32
+                   " rtp=%" PRIu32,
                    (long long)(on_time_err_us / 1000LL), buffered_frames,
                    (long long)depth_ms, (long long)ptp_gap_us, ps.outlier_count,
                    timing->gaps, audio_output_get_underruns(),
-                   stats ? stats->rtp_missing : 0,
-                   stats ? stats->nack_sent : 0,
+                   stats ? stats->rtp_missing : 0, stats ? stats->nack_sent : 0,
                    stats ? stats->nack_errors : 0,
                    stats ? stats->retransmits_accepted : 0,
                    stats ? stats->retransmits_received : 0,
-                   stats ? stats->resend_abandoned : 0,
-                   played_rtp_timestamp);
+                   stats ? stats->resend_abandoned : 0, played_rtp_timestamp);
         }
 
         // Position servo (see POS_SERVO_* above).  Smooth the per-frame

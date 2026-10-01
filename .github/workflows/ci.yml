@@ -72,11 +72,15 @@ jobs:
           submodules: "recursive"
 
       - name: Build and generate compile_commands.json
+        # The v5.5 image ships component manager 2.2.2, which crashes while
+        # inspecting LVGL 9.6's optional Kconfig dependencies during resolution.
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5
           target: esp32s3
-          command: idf.py -DSDKCONFIG_DEFAULTS="config/sdkconfig.defaults;config/sdkconfig.defaults.esp32s3" build
+          command: >
+            python -m pip install --disable-pip-version-check idf-component-manager==2.5.2 &&
+            idf.py -DSDKCONFIG_DEFAULTS="config/sdkconfig.defaults;config/sdkconfig.defaults.esp32s3" build
 
       - name: Install clang-tidy
         run: sudo apt-get update && sudo apt-get install -y clang-tidy
@@ -127,7 +131,9 @@ jobs:
         with:
           esp_idf_version: v5.5
           target: ${{ matrix.target }}
-          command: idf.py -DSDKCONFIG_DEFAULTS="${{ matrix.sdkconfig }}" build
+          command: >
+            python -m pip install --disable-pip-version-check idf-component-manager==2.5.2 &&
+            idf.py -DSDKCONFIG_DEFAULTS="${{ matrix.sdkconfig }}" build
 
   build:
     needs: [format-check, lint-check]

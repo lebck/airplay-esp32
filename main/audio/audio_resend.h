@@ -10,7 +10,7 @@
 // (0.51-second) window. Each request is still capped at 64 packets.
 #define AUDIO_RESEND_WINDOW_WORDS 8
 #define AUDIO_RESEND_WINDOW_BITS  (AUDIO_RESEND_WINDOW_WORDS * 64)
-#define AUDIO_RESEND_MAX_REQUEST 64
+#define AUDIO_RESEND_MAX_REQUEST  64
 
 typedef struct {
   uint64_t missing[AUDIO_RESEND_WINDOW_WORDS];
@@ -22,7 +22,8 @@ static inline void audio_resend_window_clear(audio_resend_window_t *window) {
   memset(window, 0, sizeof(*window));
 }
 
-static inline bool audio_resend_window_empty(const audio_resend_window_t *window) {
+static inline bool
+audio_resend_window_empty(const audio_resend_window_t *window) {
   for (unsigned i = 0; i < AUDIO_RESEND_WINDOW_WORDS; ++i) {
     if (window->missing[i] != 0) {
       return false;
@@ -32,22 +33,22 @@ static inline bool audio_resend_window_empty(const audio_resend_window_t *window
 }
 
 static inline bool audio_resend_window_has(const audio_resend_window_t *window,
-                                            unsigned offset) {
+                                           unsigned offset) {
   return (window->missing[offset / 64] & (1ULL << (offset % 64))) != 0;
 }
 
 // Returns true if an older unresolved range had to be abandoned.
 static inline bool audio_resend_window_track(audio_resend_window_t *window,
-                                              uint16_t first_seq,
-                                              uint16_t count) {
+                                             uint16_t first_seq,
+                                             uint16_t count) {
   if (count == 0 || count > AUDIO_RESEND_MAX_REQUEST) {
     return false;
   }
   bool had_missing = !audio_resend_window_empty(window);
   uint16_t offset = (uint16_t)(first_seq - window->first_seq);
-  bool abandoned = had_missing &&
-                   (offset >= AUDIO_RESEND_WINDOW_BITS ||
-                    (unsigned)offset + count > AUDIO_RESEND_WINDOW_BITS);
+  bool abandoned =
+      had_missing && (offset >= AUDIO_RESEND_WINDOW_BITS ||
+                      (unsigned)offset + count > AUDIO_RESEND_WINDOW_BITS);
   if (!had_missing || abandoned) {
     audio_resend_window_clear(window);
     window->first_seq = first_seq;
@@ -62,7 +63,7 @@ static inline bool audio_resend_window_track(audio_resend_window_t *window,
 }
 
 static inline bool audio_resend_window_mark(audio_resend_window_t *window,
-                                             uint16_t seq) {
+                                            uint16_t seq) {
   unsigned offset = (uint16_t)(seq - window->first_seq);
   if (offset >= AUDIO_RESEND_WINDOW_BITS ||
       !audio_resend_window_has(window, offset)) {
@@ -86,9 +87,8 @@ static inline bool audio_resend_window_mark(audio_resend_window_t *window,
     unsigned bits = skip % 64;
     for (unsigned i = 0; i < AUDIO_RESEND_WINDOW_WORDS; ++i) {
       unsigned src = i + words;
-      uint64_t value = src < AUDIO_RESEND_WINDOW_WORDS
-                           ? window->missing[src] >> bits
-                           : 0;
+      uint64_t value =
+          src < AUDIO_RESEND_WINDOW_WORDS ? window->missing[src] >> bits : 0;
       if (bits != 0 && src + 1 < AUDIO_RESEND_WINDOW_WORDS) {
         value |= window->missing[src + 1] << (64 - bits);
       }
@@ -100,8 +100,9 @@ static inline bool audio_resend_window_mark(audio_resend_window_t *window,
 }
 
 // Rotate retries across independent missing ranges, including sequence wrap.
-static inline bool audio_resend_window_next_range(
-    const audio_resend_window_t *window, uint16_t *first, uint16_t *count) {
+static inline bool
+audio_resend_window_next_range(const audio_resend_window_t *window,
+                               uint16_t *first, uint16_t *count) {
   if (!first || !count || audio_resend_window_empty(window)) {
     return false;
   }

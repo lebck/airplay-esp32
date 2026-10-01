@@ -577,22 +577,21 @@ size_t audio_timing_read(audio_timing_t *timing, audio_buffer_t *buffer,
     // then the hole (concealed as silence), then the track — an audible pop
     // at every affected stream start (observed on hardware: a 14-frame
     // island followed by an 830 ms hole on a track change).  Until playout
-    // has started, skip any frame that sits more than ~100 ms below the
-    // start of the contiguous run that ends at the newest received frame:
+    // has started, skip a newly taken frame that sits more than ~100 ms
+    // below the start of the contiguous run ending at the newest frame:
     // the discarded audio is stale by definition, and the real stream still
-    // starts at exactly its scheduled instant via the early-hold.
-    if (!timing->playout_started && format->sample_rate > 0) {
+    // starts at exactly its scheduled instant via the early-hold.  Once a
+    // frame is held pending, keep that decision: the sender can fill a newer
+    // contiguous run while this frame waits for its scheduled time.  Rechecking
+    // the moving bulk start would discard the pending frame and repeatedly
+    // restart the two-second prebuffer wait.
+    if (!timing->playout_started && !from_pending && format->sample_rate > 0) {
       uint32_t bulk_rtp = 0;
       if (audio_buffer_bulk_start_rtp(buffer, &bulk_rtp)) {
         int32_t behind = (int32_t)(bulk_rtp - hdr->rtp_timestamp);
         if (behind > (int32_t)(format->sample_rate / 10)) {
           start_skips++;
-          if (from_pending) {
-            timing->pending_valid = false;
-            timing->pending_frame_len = 0;
-          } else {
-            audio_buffer_return(buffer, item);
-          }
+          audio_buffer_return(buffer, item);
           continue;
         }
       }

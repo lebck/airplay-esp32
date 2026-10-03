@@ -100,6 +100,14 @@ Varianten: `esp32s3`, `seeed-xiao-esp32s3`, `waveshare-esp32s3`, `esp32s2`,
 `esparagus-louder-s3`. Partitionen mit 3 MiB OTA-Slots erhalten `ota-3m-v1`,
 4-MB-Layouts mit 1,875 MiB Slots `ota-1875k-v1`.
 
+Der Workflow läuft außerdem bei Pushes auf Branches: Er baut dieselbe Matrix,
+erzeugt das Manifest und lädt die Ergebnisse als Actions-Artefakt hoch, ohne
+einen GitHub-Release anzulegen. Tags im Format
+`MAJOR.MINOR.PATCH-test-NAME` (zum Beispiel
+`0.4.0-test-release-display-001`) erzeugen einen GitHub-Prerelease. Der
+Versionsanteil muss `version.txt` entsprechen. Normale stabile Releases behalten
+das Format `vMAJOR.MINOR.PATCH`.
+
 Der Workflow stellt sicher, dass:
 
 - Größe und Hash aus den tatsächlich veröffentlichten OTA-Dateien entstehen.

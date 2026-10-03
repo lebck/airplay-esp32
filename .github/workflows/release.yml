@@ -2,52 +2,69 @@ name: Release
 
 on:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
+      - "*-test-*"
 
 jobs:
   validate-release-version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Validate tag matches version.txt
+      - name: Validate branch or release tag
         id: version
         shell: bash
         run: |
           set -euo pipefail
 
-          tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tags must use vMAJOR.MINOR.PATCH format, got '$tag'"
-            exit 1
-          fi
-
-          tag_version="${tag#v}"
           file_version="$(tr -d '[:space:]' < version.txt)"
-
           if [[ ! "$file_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version.txt must contain MAJOR.MINOR.PATCH, got '$file_version'"
             exit 1
           fi
 
-          if [[ "$tag_version" != "$file_version" ]]; then
-            echo "::error::Release tag '$tag' does not match version.txt '$file_version'"
+          if [[ "$GITHUB_REF_TYPE" == "branch" ]]; then
+            echo "version=$file_version" >> "$GITHUB_OUTPUT"
+            echo "channel=branch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tag="$GITHUB_REF_NAME"
+          if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            tag_version="${BASH_REMATCH[1]}"
+            channel=stable
+          elif [[ "$tag" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-test-[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            tag_version="${BASH_REMATCH[1]}"
+            channel=test
+          else
+            echo "::error::Expected vMAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-test-NAME tag, got '$tag'"
             exit 1
           fi
 
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          release_commit="$(git rev-list -n 1 "$tag")"
-          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
-            echo "::error::Release tag '$tag' must point to a commit on main"
+          if [[ "$tag_version" != "$file_version" ]]; then
+            echo "::error::Tag '$tag' does not match version.txt '$file_version'"
             exit 1
+          fi
+
+          if [[ "$channel" == stable ]]; then
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            release_commit="$(git rev-list -n 1 "$tag")"
+            if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+              echo "::error::Stable release tag '$tag' must point to a commit on main"
+              exit 1
+            fi
           fi
 
           echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
   build:
     needs: validate-release-version
@@ -64,6 +81,7 @@ jobs:
           fetch-depth: 0
 
       - name: Select previous published release
+        if: needs.validate-release-version.outputs.channel == 'stable'
         id: changelog-range
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,6 +93,7 @@ jobs:
           echo "range=$range" >> "$GITHUB_OUTPUT"
 
       - name: Generate Conventional Commits changelog
+        if: needs.validate-release-version.outputs.channel == 'stable'
         uses: orhun/git-cliff-action@v4
         with:
           version: v2.14.2
@@ -97,16 +116,33 @@ jobs:
             --version '${{ needs.validate-release-version.outputs.version }}' \
             --directory release-artifacts
 
+      - name: Create test release notes
+        if: needs.validate-release-version.outputs.channel == 'test'
+        run: |
+          printf 'Test release for `%s` from commit `%s`.\n' \
+            "$GITHUB_REF_NAME" "$GITHUB_SHA" \
+            > release-artifacts/CHANGELOG.md
+
+      - name: Upload branch build artifacts
+        if: needs.validate-release-version.outputs.channel == 'branch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-candidate-${{ github.run_id }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
       - name: Create GitHub Release
+        if: needs.validate-release-version.outputs.channel != 'branch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.validate-release-version.outputs.version }}
-          name: v${{ needs.validate-release-version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           body_path: release-artifacts/CHANGELOG.md
           files: |
             release-artifacts/CHANGELOG.md
             release-artifacts/*.bin
             release-artifacts/update-manifest.json
           fail_on_unmatched_files: true
-          make_latest: true
+          prerelease: ${{ needs.validate-release-version.outputs.channel == 'test' }}
+          make_latest: ${{ needs.validate-release-version.outputs.channel == 'stable' }}
           overwrite_files: true

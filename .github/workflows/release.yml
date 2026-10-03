@@ -91,6 +91,12 @@ jobs:
           pattern: firmware-*
           merge-multiple: true
 
+      - name: Generate OTA update manifest
+        run: |
+          python3 scripts/create-update-manifest.py \
+            --version '${{ needs.validate-release-version.outputs.version }}' \
+            --directory release-artifacts
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -100,6 +106,7 @@ jobs:
           files: |
             release-artifacts/CHANGELOG.md
             release-artifacts/*.bin
+            release-artifacts/update-manifest.json
           fail_on_unmatched_files: true
           make_latest: true
           overwrite_files: true

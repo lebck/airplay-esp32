@@ -28,6 +28,12 @@ endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(airplay2-receiver VERSION ${PROJECT_VER})
 
+# Native ESP-IDF builds may set these explicitly with -D options. CI supplies
+# release identities per matrix entry; unlabelled local builds stay ineligible
+# for automated updates until assigned a published variant and layout.
+set(FIRMWARE_BUILD_VARIANT "custom" CACHE STRING "Firmware build variant ID")
+set(FIRMWARE_UPDATE_LAYOUT "custom-unknown" CACHE STRING "OTA partition layout ID")
+
 include(cmake/fix_usb_device_uac_platformio.cmake)
 
 # Build a SPIFFS image from data/ and flash it alongside the firmware.

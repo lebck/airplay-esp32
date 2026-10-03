@@ -22,6 +22,7 @@
 #include "rtsp_server.h"
 #include "audio_output.h"
 #include "esp_app_desc.h"
+#include "esp_ota_ops.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -64,6 +65,13 @@
 
 static const char *TAG = "web_server";
 static httpd_handle_t s_server = NULL;
+
+#ifndef FIRMWARE_BUILD_VARIANT
+#define FIRMWARE_BUILD_VARIANT "custom"
+#endif
+#ifndef FIRMWARE_UPDATE_LAYOUT
+#define FIRMWARE_UPDATE_LAYOUT "custom-unknown"
+#endif
 
 #define SPIFFS_CHUNK_SIZE 1024
 
@@ -987,6 +995,24 @@ static esp_err_t system_info_handler(httpd_req_t *req) {
   }
   const esp_app_desc_t *app_desc = esp_app_get_description();
   cJSON_AddStringToObject(info, "firmware_version", app_desc->version);
+  cJSON_AddStringToObject(info, "build_variant", FIRMWARE_BUILD_VARIANT);
+#if CONFIG_IDF_TARGET_ESP32
+  cJSON_AddStringToObject(info, "chip", "esp32");
+#elif CONFIG_IDF_TARGET_ESP32S2
+  cJSON_AddStringToObject(info, "chip", "esp32s2");
+#elif CONFIG_IDF_TARGET_ESP32S3
+  cJSON_AddStringToObject(info, "chip", "esp32s3");
+#elif CONFIG_IDF_TARGET_ESP32P4
+  cJSON_AddStringToObject(info, "chip", "esp32p4");
+#elif CONFIG_IDF_TARGET_ESP32C5
+  cJSON_AddStringToObject(info, "chip", "esp32c5");
+#else
+  cJSON_AddStringToObject(info, "chip", "unknown");
+#endif
+  cJSON_AddStringToObject(info, "update_layout", FIRMWARE_UPDATE_LAYOUT);
+  const esp_partition_t *ota_partition = esp_ota_get_next_update_partition(NULL);
+  cJSON_AddNumberToObject(info, "ota_partition_size",
+                          ota_partition ? ota_partition->size : 0);
   cJSON_AddStringToObject(info, "reset_reason",
                           reset_reason_str(esp_reset_reason()));
   cJSON_AddNumberToObject(info, "uptime_s",

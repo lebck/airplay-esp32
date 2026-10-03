@@ -119,6 +119,11 @@ idf_component_register(
     PRIV_REQUIRES ${DEPS}
 )
 
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    FIRMWARE_BUILD_VARIANT="${FIRMWARE_BUILD_VARIANT}"
+    FIRMWARE_UPDATE_LAYOUT="${FIRMWARE_UPDATE_LAYOUT}"
+)
+
 # Enable function wrapping for abort() to intercept panics and mute GPIO
 if(CONFIG_BOARD_SQUEEZEAMP_COMMON)
     target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=abort")

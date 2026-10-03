@@ -14,8 +14,10 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
 
-    if not re.fullmatch(r"\d+\.\d+\.\d+", args.version):
-        parser.error("version must use MAJOR.MINOR.PATCH")
+    if not re.fullmatch(
+        r"\d+\.\d+\.\d+(-test-[A-Za-z0-9][A-Za-z0-9._-]*)?", args.version
+    ):
+        parser.error("version must use MAJOR.MINOR.PATCH with an optional test suffix")
 
     records = []
     seen = set()

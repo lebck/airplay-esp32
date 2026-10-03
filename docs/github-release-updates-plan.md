@@ -104,9 +104,10 @@ Der Workflow läuft außerdem bei Pushes auf Branches: Er baut dieselbe Matrix,
 erzeugt das Manifest und lädt die Ergebnisse als Actions-Artefakt hoch, ohne
 einen GitHub-Release anzulegen. Tags im Format
 `MAJOR.MINOR.PATCH-test-NAME` (zum Beispiel
-`0.4.0-test-release-display-001`) erzeugen einen GitHub-Prerelease. Der
-Versionsanteil muss `version.txt` entsprechen. Normale stabile Releases behalten
-das Format `vMAJOR.MINOR.PATCH`.
+`0.4.0-test-release-display-001`) erzeugen einen GitHub-Prerelease. Der ganze
+Testtag muss exakt dem Inhalt von `version.txt` entsprechen, damit
+Firmware-Version, Manifest-Version und Release-Tag übereinstimmen. Normale
+stabile Releases behalten das Format `vMAJOR.MINOR.PATCH`.
 
 Der Workflow stellt sicher, dass:
 

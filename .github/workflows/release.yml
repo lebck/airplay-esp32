@@ -26,8 +26,8 @@ jobs:
           set -euo pipefail
 
           file_version="$(tr -d '[:space:]' < version.txt)"
-          if [[ ! "$file_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::version.txt must contain MAJOR.MINOR.PATCH, got '$file_version'"
+          if [[ ! "$file_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-test-[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]]; then
+            echo "::error::version.txt must contain MAJOR.MINOR.PATCH or a test prerelease version, got '$file_version'"
             exit 1
           fi
 
@@ -41,7 +41,7 @@ jobs:
           if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             tag_version="${BASH_REMATCH[1]}"
             channel=stable
-          elif [[ "$tag" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-test-[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+          elif [[ "$tag" =~ ^([0-9]+\.[0-9]+\.[0-9]+-test-[A-Za-z0-9][A-Za-z0-9._-]*)$ ]]; then
             tag_version="${BASH_REMATCH[1]}"
             channel=test
           else

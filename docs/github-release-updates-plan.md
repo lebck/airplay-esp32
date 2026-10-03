@@ -54,9 +54,9 @@ Beispiel für ergänzte Geräteinformationen:
 ```
 
 Versionen, Größen und Layoutnamen in diesem Dokument sind Beispiele. Die
-Release-Matrix setzt die Varianten-ID explizit; die PlatformIO-Vorkompilierung
-leitet sie aus der Umgebung und das Layout aus der konfigurierten
-Partitionstabelle ab. Native ESP-IDF-Builds können beide Werte über
+Release-Matrix setzt Varianten-ID und Layout explizit; die PlatformIO-Konfiguration
+setzt die Werte je Umgebung entsprechend ihrer Partitionstabelle. Native
+ESP-IDF-Builds können beide Werte über
 `-DFIRMWARE_BUILD_VARIANT=<id>` und `-DFIRMWARE_UPDATE_LAYOUT=<id>` setzen.
 Unmarkierte native Builds melden `custom` und `custom-unknown` und passen damit
 zu keinem veröffentlichten Update-Paket.

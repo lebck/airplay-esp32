@@ -78,7 +78,13 @@ jobs:
             cp merged-firmware.bin ../airplay2-receiver-${{ matrix.name }}.bin &&
             cp airplay2-receiver.bin ../airplay2-receiver-${{ matrix.name }}-ota.bin &&
             cd .. &&
-            python -c 'import json,pathlib; pathlib.Path("airplay2-receiver-${{ matrix.name }}.json").write_text(json.dumps({"variant":"${{ matrix.name }}","chip":"${{ matrix.chip }}","layout":"${{ matrix.layout }}","version":pathlib.Path("version.txt").read_text().strip(),"asset":"airplay2-receiver-${{ matrix.name }}-ota.bin"})+"\n")'
+            python scripts/create-firmware-metadata.py
+            --variant ${{ matrix.name }}
+            --chip ${{ matrix.chip }}
+            --layout ${{ matrix.layout }}
+            --version-file version.txt
+            --asset airplay2-receiver-${{ matrix.name }}-ota.bin
+            --output airplay2-receiver-${{ matrix.name }}.json
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v6

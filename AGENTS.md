@@ -3,6 +3,11 @@
 Shared repository guidance for coding agents. Keep build and CI details here in
 sync with `platformio.ini`, `.github/workflows/`, and `requirements-dev.txt`.
 
+For repository navigation, use the installed, version-matched
+[ProjectAtlas skill](/Users/lback/.codex/plugins/cache/projectatlas/projectatlas/0.4.5/skills/projectatlas/SKILL.md)
+and its MCP tools. Initialize ProjectAtlas only when this repository's local
+state is absent, and follow the skill's incremental freshness policy.
+
 ## Project Overview
 
 ESP32 AirPlay 2 Receiver — firmware that turns ESP32/ESP32-S3/ESP32-P4 boards into AirPlay 2 speakers. Supports ALAC and AAC decoding, Bluetooth A2DP (ESP32 only), W5500 Ethernet (Esparagus Audio Brick), OLED/TFT displays, hardware buttons, and OTA updates.

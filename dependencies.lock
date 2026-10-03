@@ -122,6 +122,6 @@ direct_dependencies:
 - espressif/mdns
 - espressif/usb_device_uac
 - lvgl/lvgl
-manifest_hash: 5e907f6a7449f560ee0d6d407fb03dcb729d61b80a1c9ce03ed2d34a9545e5d2
+manifest_hash: 51bae9e97a3de946300bbd47e73cb422c1d9ebf56ec45ab05ec77ada8e3a97a8
 target: esp32s3
 version: 2.0.0

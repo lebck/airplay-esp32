@@ -47,12 +47,11 @@ git config core.hooksPath .githooks
 
 `staging` is the integration branch. Every push to it rebuilds the firmware matrix and
 replaces the rolling `beta` pre-release, so anything merged there is immediately
-installable from the [browser installer](getting-started/flashing.md#beta-builds) and can
-be tried on real hardware before it reaches anyone running a release.
+available as firmware assets on the GitHub beta release and can be tried on real
+hardware before it reaches anyone running a stable release.
 
-`main` carries stable releases. It is what the documentation site is published from and
-what the release install buttons serve, and it moves only when `staging` has proved itself
-and a version is tagged.
+`main` carries stable releases and moves only when `staging` has proved itself
+and a version is tagged. Stable firmware downloads are published as GitHub Release assets.
 
 `version.txt` on `staging` must stay ahead of the latest release or the beta job fails, so
 bump it as soon as a release goes out.
@@ -88,12 +87,24 @@ compile does not withhold every other board's build.
 
 Adding a target means an entry in `targets.json` **and** a matching
 `docs/firmware/<name>.json` manifest whose `parts[0].path` is
-`airplay2-receiver-<name>.bin`. The docs workflow silently drops a manifest whose binary is
-missing from the release, so a target added here shows up in the browser installer only
-once a release actually carries it.
+`airplay2-receiver-<name>.bin`. These manifests support local browser-installer
+previews; firmware downloads are attached to GitHub Releases. There is no automated docs deployment.
 
 Tagging `vMAJOR.MINOR.PATCH` triggers a release, which validates the tag against
-`version.txt` and publishes merged firmware binaries.
+`version.txt` and publishes merged firmware binaries plus a downloadable `CHANGELOG.md`.
+The same changelog is used as the release description. All matrix builds must succeed
+before the release is published.
+
+[git-cliff](https://git-cliff.org/) 2.14.2 generates the changelog using `cliff.toml`.
+Use Conventional Commits (`feat(audio): ...`, `fix(network): ...`, etc.) to place changes
+in the appropriate categories. Both `!` and `BREAKING CHANGE:` mark breaking changes;
+unconventional messages remain visible under Other Changes.
+
+The range starts after the highest earlier stable published release version whose tag
+is an ancestor of the new tag. Drafts, prereleases, and tags without a published release
+are ignored. The first release includes all commits reachable from its tag. Rerunning
+the workflow updates the same release and replaces its changelog and firmware assets.
+Documentation remains in the repository; no docs build or Pages deployment runs.
 
 ## Testing
 
@@ -120,8 +131,8 @@ Configuration lives in `mkdocs.yml`. Zensical reads that format natively — it 
 successor to Material for MkDocs by the same team, so the file is unchanged from a
 Material setup and switching back is just a dependency change.
 
-The build runs in **strict mode**, so a broken internal link fails CI rather than shipping
-a dead link. Adding a page means adding it to the `nav` section of `mkdocs.yml`.
+For an optional local link check, run `zensical build --strict --clean`.
+Adding a page means adding it to the `nav` section of `mkdocs.yml`.
 
 Docs and code live in the same repository on purpose: a pull request that changes a GPIO
 default or a Kconfig option should update the corresponding page in the same diff.

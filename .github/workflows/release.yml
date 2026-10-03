@@ -59,6 +59,31 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select previous published release
+        id: changelog-range
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --slurp > "$RUNNER_TEMP/releases.json"
+          range="$(python3 scripts/release-range.py "$GITHUB_REF_NAME" "$RUNNER_TEMP/releases.json")"
+          echo "range=$range" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Conventional Commits changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          version: v2.14.2
+          config: cliff.toml
+          args: ${{ steps.changelog-range.outputs.range }} --tag-pattern "^${{ github.ref_name }}$"
+        env:
+          OUTPUT: release-artifacts/CHANGELOG.md
+          CHANGELOG_REPO: ${{ github.repository }}
+
       - name: Download all firmware artifacts
         uses: actions/download-artifact@v6
         with:
@@ -71,6 +96,10 @@ jobs:
         with:
           tag_name: v${{ needs.validate-release-version.outputs.version }}
           name: v${{ needs.validate-release-version.outputs.version }}
-          files: release-artifacts/*.bin
+          body_path: release-artifacts/CHANGELOG.md
+          files: |
+            release-artifacts/CHANGELOG.md
+            release-artifacts/*.bin
+          fail_on_unmatched_files: true
           make_latest: true
-          generate_release_notes: true
+          overwrite_files: true

@@ -1,0 +1,37 @@
+# Release-specific changelog; the workflow supplies an explicit commit range
+# and restricts tag matching to the current tag, including failed release tags.
+[changelog]
+header = ""
+body = """
+## {{ version }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ get_env(name="CHANGELOG_REPO") }}/commit/{{ commit.id }}))
+{% if commit.breaking_description %}  Breaking change: {{ commit.breaking_description }}
+{% endif %}{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+filter_commits = false
+commit_parsers = [
+    { field = "breaking", pattern = "true", group = "<!-- 00 -->Breaking Changes" },
+    { message = "^feat", group = "<!-- 01 -->Features" },
+    { message = "^fix", group = "<!-- 02 -->Bug Fixes" },
+    { message = "^perf", group = "<!-- 03 -->Performance" },
+    { message = "^refactor", group = "<!-- 04 -->Refactoring" },
+    { message = "^docs?", group = "<!-- 05 -->Documentation" },
+    { message = "^build", group = "<!-- 06 -->Build" },
+    { message = "^ci", group = "<!-- 07 -->CI" },
+    { message = "^test", group = "<!-- 08 -->Tests" },
+    { message = "^style", group = "<!-- 09 -->Style" },
+    { message = "^chore", group = "<!-- 10 -->Maintenance" },
+    { message = "^revert", group = "<!-- 11 -->Reverts" },
+    { message = ".*", group = "<!-- 12 -->Other Changes" },
+]
+sort_commits = "oldest"
